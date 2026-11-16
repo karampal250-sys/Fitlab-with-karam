@@ -1,0 +1,207 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User biometric profile, diet preferences, calculated BMI/BMR/TDEE, and daily calorie/macro targets.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "age": { "type": "integer" },
+        "gender": { "type": "string", "enum": ["female", "male", "other"] },
+        "heightCm": { "type": "number" },
+        "currentWeightKg": { "type": "number" },
+        "targetWeightKg": { "type": "number" },
+        "activityLevel": { "type": "string", "enum": ["sedentary", "light", "moderate", "active", "very_active"] },
+        "dietType": { "type": "string", "enum": ["veg", "non-veg", "vegan", "eggetarian"] },
+        "allergies": { "type": "array" },
+        "timelineWeeks": { "type": "integer" },
+        "goalType": { "type": "string", "enum": ["lose", "maintain", "gain"] },
+        "bmi": { "type": "number" },
+        "bmr": { "type": "number" },
+        "tdee": { "type": "number" },
+        "dailyCalorieTarget": { "type": "integer" },
+        "proteinTargetG": { "type": "integer" },
+        "carbsTargetG": { "type": "integer" },
+        "fatTargetG": { "type": "integer" },
+        "fiberTargetG": { "type": "integer" },
+        "language": { "type": "string", "enum": ["en", "hi"] },
+        "darkMode": { "type": "boolean" },
+        "healthSyncEnabled": { "type": "boolean" },
+        "wakeUpTime": { "type": "string", "minLength": 5, "maxLength": 5, "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "age", "gender", "heightCm", "currentWeightKg", "targetWeightKg", "activityLevel", "dietType", "timelineWeeks", "goalType", "dailyCalorieTarget", "createdAt", "updatedAt"]
+    },
+    "FoodLog": {
+      "title": "FoodLog",
+      "description": "Individual logged food entry for a meal slot on a specific date.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "mealType": { "type": "string", "enum": ["breakfast", "lunch", "snacks", "dinner"] },
+        "foodId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "foodName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "servingUnit": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "servingQty": { "type": "number" },
+        "grams": { "type": "number" },
+        "calories": { "type": "integer" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "fiber": { "type": "number" },
+        "source": { "type": "string", "enum": ["indian_db", "open_food_facts", "ai_photo", "custom", "coach"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "date", "mealType", "foodId", "foodName", "servingUnit", "servingQty", "calories", "protein", "carbs", "fat", "fiber", "createdAt"]
+    },
+    "DailyMetric": {
+      "title": "DailyMetric",
+      "description": "Daily water intake, step count, and exercise calories burned.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "waterMl": { "type": "integer" },
+        "waterGoalMl": { "type": "integer" },
+        "steps": { "type": "integer" },
+        "exerciseCalories": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "date", "waterMl", "waterGoalMl", "steps", "exerciseCalories", "updatedAt"]
+    },
+    "CustomFood": {
+      "title": "CustomFood",
+      "description": "User-created custom food or saved multi-ingredient recipe.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "dietType": { "type": "string", "enum": ["veg", "non-veg", "vegan", "eggetarian"] },
+        "servingUnit": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "servingGrams": { "type": "number" },
+        "calories": { "type": "integer" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "fiber": { "type": "number" },
+        "isRecipe": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "dietType", "servingUnit", "servingGrams", "calories", "protein", "carbs", "fat", "fiber", "isRecipe", "createdAt"]
+    },
+    "FavoriteFood": {
+      "title": "FavoriteFood",
+      "description": "Quick-log favorite food reference.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "foodId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "foodName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "calories": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "foodId", "foodName", "calories", "createdAt"]
+    },
+    "ProgressEntry": {
+      "title": "ProgressEntry",
+      "description": "Weekly weight, body measurements, and progress photo note.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "weightKg": { "type": "number" },
+        "waistCm": { "type": "number" },
+        "chestCm": { "type": "number" },
+        "hipsCm": { "type": "number" },
+        "armsCm": { "type": "number" },
+        "note": { "type": "string", "maxLength": 300 },
+        "photoDataUrl": { "type": "string", "maxLength": 400000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "date", "weightKg", "createdAt"]
+    },
+    "CoachPlan": {
+      "title": "CoachPlan",
+      "description": "Saved AI Coach 7-day meal plan or workout plan.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "planType": { "type": "string", "enum": ["meal_plan", "workout_plan"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "payload": { "type": "string", "minLength": 2, "maxLength": 100000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "planType", "title", "payload", "createdAt"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Sports, workout, or daily activity calorie burn entry.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "activityId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "activityName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "category": { "type": "string", "enum": ["sports", "cardio", "strength", "daily"] },
+        "durationMin": { "type": "integer" },
+        "intensity": { "type": "string", "enum": ["light", "moderate", "vigorous"] },
+        "caloriesBurned": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "date", "activityId", "activityName", "category", "durationMin", "intensity", "caloriesBurned", "createdAt"]
+    },
+    "DailySchedule": {
+      "title": "DailySchedule",
+      "description": "Daily eating and hydration schedule check-off state.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "completedSlotIds": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "date", "completedSlotIds", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only user health profile and calorie targets."
+    },
+    "/users/{userId}/foodLogs/{logId}": {
+      "schema": { "$ref": "#/entities/FoodLog" },
+      "description": "Owner-only food logs per day and meal slot."
+    },
+    "/users/{userId}/dailyMetrics/{dateId}": {
+      "schema": { "$ref": "#/entities/DailyMetric" },
+      "description": "Owner-only daily water, steps, and exercise records."
+    },
+    "/users/{userId}/customFoods/{foodId}": {
+      "schema": { "$ref": "#/entities/CustomFood" },
+      "description": "Owner-only custom foods and recipes."
+    },
+    "/users/{userId}/favorites/{foodId}": {
+      "schema": { "$ref": "#/entities/FavoriteFood" },
+      "description": "Owner-only favorite foods."
+    },
+    "/users/{userId}/progressEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/ProgressEntry" },
+      "description": "Owner-only weekly weight and measurement logs."
+    },
+    "/users/{userId}/coachPlans/{planId}": {
+      "schema": { "$ref": "#/entities/CoachPlan" },
+      "description": "Owner-only saved AI meal and workout plans."
+    },
+    "/users/{userId}/activityLogs/{activityId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Owner-only sports and daily activity calorie burn logs."
+    },
+    "/users/{userId}/dailySchedules/{dateId}": {
+      "schema": { "$ref": "#/entities/DailySchedule" },
+      "description": "Owner-only daily eating and water schedule completion state."
+    }
+  }
+}
