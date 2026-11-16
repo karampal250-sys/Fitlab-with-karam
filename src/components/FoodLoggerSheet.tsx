@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Barcode, Camera, Heart, Plus, Search, Sparkles, Utensils, X } from 'lucide-react';
 import type { DietType, FoodItem, FoodLogEntry, Language, MealType } from '../types/fitplate';
 import { computeMacrosForGrams, INDIAN_AND_GLOBAL_FOODS } from '../data/indianFoods';
-import { apiUrl } from '../utils/apiUrl';
+import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
 interface FoodLoggerSheetProps {
@@ -113,10 +113,14 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       if (trimmed.length < 2) return;
       setIsSearching(true);
       try {
-        const res = await fetch(apiUrl(`/api/foods/search?q=${encodeURIComponent(trimmed)}`));
-        if (res.ok) {
-          const data = (await res.json()) as { items: FoodItem[] };
-          const merged = [...customFoods.filter((f) => f.name.toLowerCase().includes(trimmed.toLowerCase())), ...(data.items || [])];
+        const { ok, data } = await safeFetchJson<{ items?: FoodItem[] }>(
+          apiUrl(`/api/foods/search?q=${encodeURIComponent(trimmed)}`)
+        );
+        if (ok && data && Array.isArray(data.items)) {
+          const merged = [
+            ...customFoods.filter((f) => f.name.toLowerCase().includes(trimmed.toLowerCase())),
+            ...data.items,
+          ];
           setSearchResults(merged);
         }
       } catch {
@@ -169,10 +173,19 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     setBarcodeLoading(true);
     setBarcodeError(null);
     try {
-      const res = await fetch(apiUrl(`/api/foods/barcode/${encodeURIComponent(clean)}`));
-      const data = await res.json();
-      if (!res.ok) {
-        setBarcodeError(data.error || 'Product not found.');
+      const { ok, data } = await safeFetchJson<{ item?: FoodItem; error?: string }>(
+        apiUrl(`/api/foods/barcode/${encodeURIComponent(clean)}`)
+      );
+      if (!ok || !data) {
+        const offlineHit = allKnownFoods.find((f) => f.barcode === clean);
+        if (offlineHit) {
+          stopCamera();
+          setSelectedFood(offlineHit);
+          setSelectedServingIdx(0);
+          setServingQty(1);
+        } else {
+          setBarcodeError(data?.error || (isHi ? 'प्रोडक्ट नहीं मिला।' : 'Product not found.'));
+        }
       } else if (data.item) {
         stopCamera();
         setSelectedFood(data.item);
@@ -229,19 +242,21 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     setPhotoLoading(true);
     setPhotoError(null);
     try {
-      const res = await fetch(apiUrl('/api/ai/recognize-food'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: photoPreview,
-          mimeType: photoPreview.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
-          hint: photoHint,
-          language,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPhotoError(data.error || 'Photo recognition failed.');
+      const { ok, data } = await safeFetchJson<{ dishSummary?: string; items?: AiDetectedFood[]; error?: string }>(
+        apiUrl('/api/ai/recognize-food'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: photoPreview,
+            mimeType: photoPreview.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
+            hint: photoHint,
+            language,
+          }),
+        }
+      );
+      if (!ok || !data) {
+        setPhotoError(data?.error || (isHi ? 'फ़ोटो पहचान अभी उपलब्ध नहीं है।' : 'Photo recognition unavailable offline.'));
       } else {
         setDishSummary(data.dishSummary || '');
         setDetectedItems(data.items || []);

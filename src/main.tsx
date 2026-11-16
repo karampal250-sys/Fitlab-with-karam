@@ -3,6 +3,12 @@ import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
 
-registerSW({immediate: true});
+const isNativeCapacitor =
+  typeof window !== 'undefined' &&
+  Boolean((window as unknown as {Capacitor?: {isNativePlatform?: () => boolean}}).Capacitor?.isNativePlatform?.());
+
+if (!isNativeCapacitor && 'serviceWorker' in navigator) {
+  registerSW({immediate: true});
+}
 
 createRoot(document.getElementById('root')!).render(<App />);

@@ -1,5 +1,13 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, deleteUser } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  deleteUser,
+} from 'firebase/auth';
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -90,4 +98,4 @@ export async function testFirestoreConnection(): Promise<boolean> {
   }
 }
 
-export { signInWithPopup, signOut, deleteUser };
+export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, deleteUser };

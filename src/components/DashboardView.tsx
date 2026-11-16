@@ -24,7 +24,7 @@ import { CalorieHeroRing, SmallMacroRing } from './MacroRings';
 import { DailyScheduleCard } from './DailyScheduleCard';
 import { ActivityBurnTracker } from './ActivityBurnTracker';
 import { deriveMealTimesFromWakeUp } from '../data/activitiesCatalog';
-import { apiUrl } from '../utils/apiUrl';
+import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
 interface DashboardViewProps {
@@ -200,7 +200,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const fetchAiSuggestion = async () => {
     setIdeaLoading(true);
     try {
-      const res = await fetch(apiUrl('/api/ai/quick-suggestion'), {
+      const { ok, data } = await safeFetchJson<typeof smartIdea>(apiUrl('/api/ai/quick-suggestion'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -211,10 +211,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           language,
         }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.foodName) setSmartIdea(data);
-      }
+      if (ok && data?.foodName) setSmartIdea(data);
     } catch {
       // keep local smart fallback offline
     } finally {

@@ -8,7 +8,7 @@ import type {
   MealType,
   UserProfile,
 } from '../types/fitplate';
-import { apiUrl } from '../utils/apiUrl';
+import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
 interface CoachViewProps {
@@ -68,7 +68,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
     setMealLoading(true);
     setMealError(null);
     try {
-      const res = await fetch(apiUrl('/api/ai/meal-plan'), {
+      const { ok, data } = await safeFetchJson<CoachMealPlan & { error?: string }>(apiUrl('/api/ai/meal-plan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -84,9 +84,8 @@ export const CoachView: React.FC<CoachViewProps> = ({
           budget,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setMealError(data.error || 'Could not generate meal plan.');
+      if (!ok || !data || !Array.isArray(data.days)) {
+        setMealError(data?.error || (isHi ? 'AI मील प्लान अभी उपलब्ध नहीं है।' : 'Could not generate meal plan right now.'));
       } else {
         onSaveMealPlan(data);
         setSelectedDayIdx(0);
@@ -102,22 +101,24 @@ export const CoachView: React.FC<CoachViewProps> = ({
     setWorkoutLoading(true);
     setWorkoutError(null);
     try {
-      const res = await fetch(apiUrl('/api/ai/workout-plan'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile: {
-            goalType: profile.goalType,
-            activityLevel: profile.activityLevel,
-            age: profile.age,
-            language,
-          },
-          mode: workoutMode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setWorkoutError(data.error || 'Could not generate workout plan.');
+      const { ok, data } = await safeFetchJson<CoachWorkoutPlan & { error?: string }>(
+        apiUrl('/api/ai/workout-plan'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile: {
+              goalType: profile.goalType,
+              activityLevel: profile.activityLevel,
+              age: profile.age,
+              language,
+            },
+            mode: workoutMode,
+          }),
+        }
+      );
+      if (!ok || !data || !Array.isArray(data.days)) {
+        setWorkoutError(data?.error || (isHi ? 'वर्कआउट प्लान अभी उपलब्ध नहीं है।' : 'Could not generate workout plan right now.'));
       } else {
         onSaveWorkoutPlan(data);
       }
@@ -143,7 +144,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
     setChatLoading(true);
 
     try {
-      const res = await fetch(apiUrl('/api/ai/coach-chat'), {
+      const { ok, data } = await safeFetchJson<{ reply?: string; error?: string }>(apiUrl('/api/ai/coach-chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -163,11 +164,10 @@ export const CoachView: React.FC<CoachViewProps> = ({
           },
         }),
       });
-      const data = await res.json();
       const assistantMsg: ChatMessage = {
         id: `a_${Date.now()}`,
         role: 'assistant',
-        text: res.ok ? data.reply : data.error || 'Unable to reply right now.',
+        text: ok && data?.reply ? data.reply : data?.error || (isHi ? 'AI चैट अभी ऑफ़लाइन है।' : 'Unable to reply right now.'),
         createdAt: new Date().toISOString(),
       };
       onAppendChat([assistantMsg]);

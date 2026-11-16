@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Clock, Globe, Moon, ShieldCheck, Sunrise, Utensils } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Clock, Globe, Moon, ShieldCheck, Sunrise, Utensils } from 'lucide-react';
 import type { ActivityLevel, DietType, Gender, Language, UserProfile } from '../types/fitplate';
 import { calculateNutritionPlan } from '../utils/nutritionMath';
 import { deriveMealTimesFromWakeUp, isNightShiftWakeTime } from '../data/activitiesCatalog';
@@ -10,6 +10,7 @@ interface OnboardingFlowProps {
   language: Language;
   onChangeLanguage: (lang: Language) => void;
   onComplete: (profile: UserProfile) => void;
+  onCancel?: () => void;
   onGoogleSignIn?: () => void;
   isSignedIn?: boolean;
   userEmail?: string | null;
@@ -22,6 +23,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   language,
   onChangeLanguage,
   onComplete,
+  onCancel,
   onGoogleSignIn,
   isSignedIn,
   userEmail,
@@ -68,66 +70,77 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   };
 
+  const buildProfilePayload = (): UserProfile => ({
+    uid: initialProfile?.uid || 'local_user',
+    name: name.trim() || 'Karam User',
+    age: Math.max(13, Math.min(120, Math.round(age))),
+    gender,
+    heightCm: Number(heightCm),
+    currentWeightKg: Number(currentWeightKg),
+    targetWeightKg: Number(targetWeightKg),
+    activityLevel,
+    dietType,
+    allergies,
+    timelineWeeks: Math.max(1, Math.round(timelineWeeks)),
+    goalType: calc.goalType,
+    bmi: calc.bmi,
+    bmr: calc.bmr,
+    tdee: calc.tdee,
+    dailyCalorieTarget: calc.dailyCalorieTarget,
+    proteinTargetG: calc.proteinTargetG,
+    carbsTargetG: calc.carbsTargetG,
+    fatTargetG: calc.fatTargetG,
+    fiberTargetG: calc.fiberTargetG,
+    language,
+    darkMode: initialProfile?.darkMode ?? false,
+    healthSyncEnabled: initialProfile?.healthSyncEnabled ?? false,
+    wakeUpTime,
+    reminders: {
+      ...deriveMealTimesFromWakeUp(wakeUpTime),
+      waterIntervalMin: initialProfile?.reminders?.waterIntervalMin ?? 90,
+      enabled: initialProfile?.reminders?.enabled ?? true,
+      alarmsEnabled: initialProfile?.reminders?.alarmsEnabled ?? true,
+      soundEnabled: initialProfile?.reminders?.soundEnabled ?? true,
+    },
+    encryptionEnabled: true,
+    under18Acknowledged: age < 18,
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!disclaimerAccepted || !name.trim()) return;
-    const profile: UserProfile = {
-      uid: initialProfile?.uid || 'local_user',
-      name: name.trim(),
-      age: Math.max(13, Math.min(120, Math.round(age))),
-      gender,
-      heightCm: Number(heightCm),
-      currentWeightKg: Number(currentWeightKg),
-      targetWeightKg: Number(targetWeightKg),
-      activityLevel,
-      dietType,
-      allergies,
-      timelineWeeks: Math.max(1, Math.round(timelineWeeks)),
-      goalType: calc.goalType,
-      bmi: calc.bmi,
-      bmr: calc.bmr,
-      tdee: calc.tdee,
-      dailyCalorieTarget: calc.dailyCalorieTarget,
-      proteinTargetG: calc.proteinTargetG,
-      carbsTargetG: calc.carbsTargetG,
-      fatTargetG: calc.fatTargetG,
-      fiberTargetG: calc.fiberTargetG,
-      language,
-      darkMode: initialProfile?.darkMode ?? false,
-      healthSyncEnabled: initialProfile?.healthSyncEnabled ?? false,
-      wakeUpTime,
-      reminders: {
-        ...deriveMealTimesFromWakeUp(wakeUpTime),
-        waterIntervalMin: initialProfile?.reminders?.waterIntervalMin ?? 90,
-        enabled: initialProfile?.reminders?.enabled ?? true,
-        alarmsEnabled: initialProfile?.reminders?.alarmsEnabled ?? true,
-        soundEnabled: initialProfile?.reminders?.soundEnabled ?? true,
-      },
-      encryptionEnabled: true,
-      under18Acknowledged: age < 18,
-    };
-    onComplete(profile);
+    onComplete(buildProfilePayload());
   };
 
   const isHi = language === 'hi';
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 py-6 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 py-5 px-4 sm:px-6 lg:px-8 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Compact Top Header */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-display font-bold text-sm">
+        {/* Compact Responsive Top Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label="Back"
+                className="min-h-[40px] min-w-[40px] rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] flex items-center justify-center shrink-0"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            )}
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-display font-bold text-sm shrink-0">
               FK
             </div>
-            <span className="font-display font-bold text-lg sm:text-xl tracking-tight">Fit-Plat with Karam</span>
+            <span className="font-display font-bold text-base sm:text-xl tracking-tight truncate">Fit-Plat with Karam</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => onChangeLanguage(isHi ? 'en' : 'hi')}
-              className="min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] text-xs font-semibold flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-emerald-950/50 transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[40px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] text-xs font-semibold flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-emerald-950/50 transition-colors whitespace-nowrap shrink-0"
             >
               <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               {isHi ? 'English' : 'हिन्दी'}
@@ -136,7 +149,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <button
                 type="button"
                 onClick={onGoogleSignIn}
-                className="min-h-[44px] px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
+                className="min-h-[40px] px-3.5 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
               >
                 {t(language, 'signInGoogle')}
               </button>
@@ -145,6 +158,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium truncate max-w-[160px]">
                 {userEmail}
               </span>
+            )}
+            {!onCancel && (
+              <button
+                type="button"
+                onClick={() => onComplete(buildProfilePayload())}
+                className="min-h-[40px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                {isHi ? 'सीधे शुरू करें' : 'Quick Start'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
         </div>

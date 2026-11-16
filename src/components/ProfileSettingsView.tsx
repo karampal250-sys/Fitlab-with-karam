@@ -66,21 +66,32 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     }
   };
 
+  const userInitial = (profile.name || 'K').trim().charAt(0).toUpperCase();
+
   return (
     <div className="max-w-3xl mx-auto space-y-5">
       {/* Profile Summary */}
       <section className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="font-display text-xl font-bold">{profile.name}</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num mt-1">
-            {profile.dailyCalorieTarget} kcal/day · BMI {profile.bmi} · {profile.dietType} · {profile.currentWeightKg} →{' '}
-            {profile.targetWeightKg} kg
-          </p>
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white font-display font-bold text-lg flex items-center justify-center shrink-0">
+            {userInitial}
+          </div>
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              {isHi ? 'मेरी प्रोफ़ाइल और सेटिंग्स' : 'My Profile & Settings'}
+            </div>
+            <h2 className="font-display text-xl font-bold truncate">{profile.name}</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num mt-0.5">
+              {profile.dailyCalorieTarget} kcal/day · BMI {profile.bmi} · {profile.dietType} · {profile.currentWeightKg} →{' '}
+              {profile.targetWeightKg} kg
+              {profile.wakeUpTime ? ` · Wake ${profile.wakeUpTime}` : ''}
+            </p>
+          </div>
         </div>
         <button
           type="button"
           onClick={onEditOnboarding}
-          className="min-h-[44px] px-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2 shrink-0"
+          className="min-h-[44px] px-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center justify-center gap-2 shrink-0"
         >
           <UserCog className="w-4 h-4" />
           {isHi ? 'प्रोफ़ाइल और लक्ष्य बदलें' : 'Edit Profile & Goals'}

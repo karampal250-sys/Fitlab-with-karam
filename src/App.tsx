@@ -1,6 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { AlarmClock, BarChart3, BellRing, Check, Home, Plus, Settings, Sparkles, UtensilsCrossed, Volume2, X } from 'lucide-react';
+import {
+  AlarmClock,
+  BarChart3,
+  BellRing,
+  Check,
+  Download,
+  Globe,
+  Home,
+  LogIn,
+  LogOut,
+  Menu,
+  Moon,
+  Plus,
+  Sparkles,
+  Sun,
+  User as UserIcon,
+  UserCog,
+  UtensilsCrossed,
+  Volume2,
+  X,
+} from 'lucide-react';
 import type {
   ActivityLogEntry,
   ChatMessage,
@@ -17,7 +37,16 @@ import type {
   ScheduleSlot,
   UserProfile,
 } from './types/fitplate';
-import { auth, googleProvider, signInWithPopup, signOut, deleteUser, testFirestoreConnection } from './services/firebaseClient';
+import {
+  auth,
+  googleProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  deleteUser,
+  testFirestoreConnection,
+} from './services/firebaseClient';
 import {
   deleteActivityLogFromCloud,
   deleteAllCloudUserData,
@@ -93,15 +122,63 @@ function shiftDateIso(daysOffset: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function createDefaultStarterProfile(language: Language, darkMode: boolean): UserProfile {
+  const calc = calculateNutritionPlan({
+    age: 28,
+    gender: 'male',
+    heightCm: 173,
+    currentWeightKg: 75,
+    targetWeightKg: 70,
+    activityLevel: 'moderate',
+    dietType: 'veg',
+    timelineWeeks: 12,
+  });
+  return {
+    uid: 'local_user',
+    name: 'Karam User',
+    age: 28,
+    gender: 'male',
+    heightCm: 173,
+    currentWeightKg: 75,
+    targetWeightKg: 70,
+    activityLevel: 'moderate',
+    dietType: 'veg',
+    allergies: [],
+    timelineWeeks: 12,
+    goalType: calc.goalType,
+    bmi: calc.bmi,
+    bmr: calc.bmr,
+    tdee: calc.tdee,
+    dailyCalorieTarget: calc.dailyCalorieTarget,
+    proteinTargetG: calc.proteinTargetG,
+    carbsTargetG: calc.carbsTargetG,
+    fatTargetG: calc.fatTargetG,
+    fiberTargetG: calc.fiberTargetG,
+    language,
+    darkMode,
+    healthSyncEnabled: false,
+    wakeUpTime: '07:00',
+    reminders: DEFAULT_REMINDERS,
+    encryptionEnabled: true,
+    under18Acknowledged: false,
+  };
+}
+
 export default function App() {
   const [hydrated, setHydrated] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>('today');
   const [activeDate, setActiveDate] = useState<string>(() => todayIso());
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showSetupBanner, setShowSetupBanner] = useState(false);
 
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [editingOnboarding, setEditingOnboarding] = useState(false);
+  const profileRef = useRef<UserProfile | null>(null);
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
 
   const [foodLogs, setFoodLogs] = useState<FoodLogEntry[]>([]);
   const [dailyMetricsMap, setDailyMetricsMap] = useState<Record<string, DailyMetrics>>({});
@@ -149,8 +226,9 @@ export default function App() {
   // Load encrypted offline state + verify Firestore connectivity on mount
   useEffect(() => {
     testFirestoreConnection().catch(() => {});
+    getRedirectResult(auth).catch(() => {});
     loadEncryptedState<PersistedAppState>().then((saved) => {
-      if (saved) {
+      if (saved && saved.profile) {
         setProfile(saved.profile);
         setFoodLogs(saved.foodLogs || []);
         setDailyMetricsMap(saved.dailyMetrics || {});
@@ -179,6 +257,11 @@ export default function App() {
         );
         setLanguage(saved.language || 'en');
         setDarkMode(Boolean(saved.darkMode));
+      } else {
+        const lang = saved?.language || 'en';
+        const dark = Boolean(saved?.darkMode);
+        setProfile(createDefaultStarterProfile(lang, dark));
+        setShowSetupBanner(true);
       }
       setHydrated(true);
     });
@@ -233,6 +316,7 @@ export default function App() {
           const cloud = await fetchUserCloudBundle(user.uid);
           if (cloud.profile) {
             setProfile(cloud.profile);
+            setShowSetupBanner(false);
             setFoodLogs(cloud.foodLogs);
             setDailyMetricsMap(cloud.dailyMetrics);
             setCustomFoods(cloud.customFoods);
@@ -250,8 +334,8 @@ export default function App() {
             }
             setLanguage(cloud.profile.language);
             setDarkMode(cloud.profile.darkMode);
-          } else if (profile) {
-            const migrated = { ...profile, uid: user.uid };
+          } else if (profileRef.current) {
+            const migrated = { ...profileRef.current, uid: user.uid };
             setProfile(migrated);
             await syncProfileToCloud(migrated);
           }
@@ -313,6 +397,20 @@ export default function App() {
       await signInWithPopup(auth, googleProvider);
       showToast(language === 'hi' ? 'Google से सिंक हो गया' : 'Signed in and syncing with Firebase');
     } catch (err) {
+      const code = (err as { code?: string })?.code || '';
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/cancelled-popup-request'
+      ) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirErr) {
+          showToast(redirErr instanceof Error ? redirErr.message : 'Sign-in failed');
+          return;
+        }
+      }
       showToast(err instanceof Error ? err.message : 'Sign-in cancelled');
     }
   };
@@ -331,6 +429,7 @@ export default function App() {
       darkMode,
     };
     setProfile(finalized);
+    setShowSetupBanner(false);
     if (nextProfile.reminders) {
       setReminders(nextProfile.reminders);
     } else if (nextProfile.wakeUpTime) {
@@ -692,6 +791,7 @@ export default function App() {
         language={language}
         onChangeLanguage={handleChangeLanguage}
         onComplete={handleCompleteOnboarding}
+        onCancel={editingOnboarding && profile ? () => setEditingOnboarding(false) : undefined}
         onGoogleSignIn={handleGoogleSignIn}
         isSignedIn={Boolean(firebaseUser)}
         userEmail={firebaseUser?.email}
@@ -704,26 +804,38 @@ export default function App() {
     ['log', t(language, 'logFood'), UtensilsCrossed],
     ['progress', t(language, 'progress'), BarChart3],
     ['coach', t(language, 'aiCoach'), Sparkles],
-    ['settings', t(language, 'settings'), Settings],
+    ['settings', t(language, 'profile'), UserIcon],
   ];
 
-  return (
-    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 pb-20 md:pb-10">
-      {/* Top Bar Contract: 3 zones (Brand — Nav links — 1 primary CTA), compact 52px height */}
-      <header className="sticky top-0 z-30 h-13 bg-white/90 dark:bg-[#111a15]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-emerald-950">
-        <div className="max-w-6xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-8">
-          <button
-            type="button"
-            onClick={() => setActiveTab('today')}
-            className="font-display font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 flex items-center gap-2"
-          >
-            <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold">
-              FK
-            </span>
-            Fit-Plat with Karam
-          </button>
+  const userInitial = (profile.name || 'K').trim().charAt(0).toUpperCase();
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+  return (
+    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 pb-24 md:pb-10">
+      {/* Top Bar: Mobile Menu + Brand — Desktop Nav — Profile + Add Food CTA */}
+      <header className="sticky top-0 z-30 pt-[env(safe-area-inset-top)] bg-white/95 dark:bg-[#111a15]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-emerald-950">
+        <div className="max-w-6xl mx-auto h-13 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-6">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label={t(language, 'menu')}
+              className="md:hidden min-h-[38px] min-w-[38px] rounded-xl border border-slate-200/80 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0"
+            >
+              <Menu className="w-4.5 h-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('today')}
+              className="font-display font-bold text-sm sm:text-lg tracking-tight text-slate-900 dark:text-white flex items-center gap-2 min-w-0"
+            >
+              <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                FK
+              </span>
+              <span className="truncate">Fit-Plat with Karam</span>
+            </button>
+          </div>
+
+          <nav className="hidden md:flex items-center gap-6 text-sm font-medium shrink-0">
             {navItems.map(([id, label]) => (
               <button
                 key={id}
@@ -740,15 +852,32 @@ export default function App() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <PWAInstallButton language={language} />
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="hidden md:block">
+              <PWAInstallButton language={language} />
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              aria-label={t(language, 'profile')}
+              className={`min-h-[38px] px-2.5 sm:px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                activeTab === 'settings'
+                  ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                  : 'border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#090e0b] text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {userInitial}
+              </span>
+              <span className="hidden sm:inline">{t(language, 'profile')}</span>
+            </button>
             <button
               type="button"
               onClick={() => setLoggerModalMeal('lunch')}
-              className="min-h-[38px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              className="min-h-[38px] px-2.5 sm:px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
             >
               <Plus className="w-4 h-4" />
-              {t(language, 'addFood')}
+              <span>{t(language, 'addFood')}</span>
             </button>
           </div>
         </div>
@@ -763,7 +892,40 @@ export default function App() {
       )}
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-5">
+        {showSetupBanner && activeTab === 'today' && (
+          <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs sm:text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+                {language === 'hi'
+                  ? 'अपना वज़न लक्ष्य, उठने का समय और शिफ्ट सेट करें'
+                  : 'Personalize your weight goal, wake-up time & shift alarms'}
+              </div>
+              <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                {language === 'hi'
+                  ? 'अभी डिफ़ॉल्ट प्लान सक्रिय है — कभी भी प्रोफ़ाइल से बदलें।'
+                  : 'Starter plan is active so you can explore right away — customize anytime.'}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setEditingOnboarding(true)}
+                className="min-h-[36px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+              >
+                {language === 'hi' ? 'प्रोफ़ाइल सेट करें' : 'Setup Profile'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSetupBanner(false)}
+                aria-label="Dismiss"
+                className="min-h-[36px] min-w-[36px] rounded-xl text-emerald-700 dark:text-emerald-300 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
         {activeTab === 'today' && (
           <DashboardView
             profile={profile}
@@ -1017,24 +1179,165 @@ export default function App() {
         </div>
       )}
 
-      {/* Mobile Bottom Navigation Bar (56px height -> combined with 52px top bar = 108px < 15% mobile height) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-white/95 dark:bg-[#111a15]/95 backdrop-blur-md border-t border-slate-200 dark:border-emerald-950 grid grid-cols-5 items-center">
-        {navItems.map(([id, label, Icon]) => {
-          const active = activeTab === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveTab(id)}
-              className={`h-full flex flex-col items-center justify-center transition-colors ${
-                active ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'
-              }`}
-            >
-              <Icon className="w-5 h-5" />
-              <span className="text-[10px] font-medium tracking-tight mt-0.5 truncate max-w-[64px]">{label}</span>
-            </button>
-          );
-        })}
+      {/* Mobile Slide-Over Menu Drawer */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <aside className="relative z-10 w-80 max-w-[85vw] h-full bg-white dark:bg-[#111a15] border-r border-slate-200 dark:border-emerald-900/60 flex flex-col pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto">
+            <div className="px-4 pb-4 border-b border-slate-100 dark:border-emerald-950 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white font-display font-bold text-sm flex items-center justify-center shrink-0">
+                  {userInitial}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-display font-bold text-sm truncate">{profile.name}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono-num truncate">
+                    {profile.dailyCalorieTarget} kcal · Wake {reminders.wakeUpTime || '07:00'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Close menu"
+                className="min-h-[36px] min-w-[36px] rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 space-y-1">
+              {navItems.map(([id, label, Icon]) => {
+                const active = activeTab === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full min-h-[44px] px-3.5 rounded-xl text-sm font-semibold flex items-center gap-3 transition-colors ${
+                      active
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-slate-700 dark:text-slate-200 hover:bg-stone-100 dark:hover:bg-emerald-950/50'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="px-3 py-3 border-t border-slate-100 dark:border-emerald-950 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setEditingOnboarding(true);
+                }}
+                className="w-full min-h-[42px] px-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2.5"
+              >
+                <UserCog className="w-4 h-4 shrink-0" />
+                {language === 'hi' ? 'प्रोफ़ाइल और लक्ष्य बदलें' : 'Edit Profile & Wake-Up Goals'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleChangeLanguage(language === 'hi' ? 'en' : 'hi')}
+                className="w-full min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 text-xs font-semibold flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2.5">
+                  <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  {t(language, 'languageLabel')}
+                </span>
+                <span className="text-emerald-700 dark:text-emerald-400">
+                  {language === 'hi' ? 'हिन्दी → EN' : 'EN → हिन्दी'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleDarkMode}
+                className="w-full min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 text-xs font-semibold flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2.5">
+                  {darkMode ? <Moon className="w-4 h-4 text-emerald-400" /> : <Sun className="w-4 h-4 text-emerald-600" />}
+                  {t(language, 'themeLabel')}
+                </span>
+                <span>{darkMode ? (language === 'hi' ? 'डार्क' : 'Dark') : language === 'hi' ? 'लाइट' : 'Light'}</span>
+              </button>
+
+              {firebaseUser ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSignOut();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 text-xs font-semibold flex items-center gap-2.5"
+                >
+                  <LogOut className="w-4 h-4" />
+                  {t(language, 'signOut')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    handleGoogleSignIn();
+                  }}
+                  className="w-full min-h-[42px] px-3.5 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-2.5"
+                >
+                  <LogIn className="w-4 h-4" />
+                  {t(language, 'signInGoogle')}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleExportJson();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 text-xs font-semibold flex items-center gap-2.5"
+              >
+                <Download className="w-4 h-4" />
+                {t(language, 'exportData')}
+              </button>
+            </div>
+
+            <div className="mt-auto border-t border-slate-100 dark:border-emerald-950">
+              <PWAInstallButton language={language} variant="card" />
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* Mobile Bottom Navigation Bar with Safe-Area Support */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom)] bg-white/95 dark:bg-[#111a15]/95 backdrop-blur-md border-t border-slate-200 dark:border-emerald-950">
+        <div className="h-14 grid grid-cols-5 items-center">
+          {navItems.map(([id, label, Icon]) => {
+            const active = activeTab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveTab(id)}
+                className={`h-full flex flex-col items-center justify-center transition-colors ${
+                  active ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="text-[10px] font-medium tracking-tight mt-0.5 truncate max-w-[64px]">{label}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
     </div>
   );

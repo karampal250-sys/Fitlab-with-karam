@@ -11,6 +11,11 @@
   html {
     font-family: var(--font-body);
     -webkit-tap-highlight-color: transparent;
+    overflow-x: clip;
+  }
+
+  body {
+    overflow-x: clip;
   }
 
   h1, h2, h3, h4, .font-display {
