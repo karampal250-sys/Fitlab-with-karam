@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Barcode, Camera, Heart, Plus, Search, Sparkles, Utensils, X } from 'lucide-react';
 import type { DietType, FoodItem, FoodLogEntry, Language, MealType } from '../types/fitplate';
 import { computeMacrosForGrams, INDIAN_AND_GLOBAL_FOODS } from '../data/indianFoods';
+import { apiUrl } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
 interface FoodLoggerSheetProps {
@@ -112,7 +113,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       if (trimmed.length < 2) return;
       setIsSearching(true);
       try {
-        const res = await fetch(`/api/foods/search?q=${encodeURIComponent(trimmed)}`);
+        const res = await fetch(apiUrl(`/api/foods/search?q=${encodeURIComponent(trimmed)}`));
         if (res.ok) {
           const data = (await res.json()) as { items: FoodItem[] };
           const merged = [...customFoods.filter((f) => f.name.toLowerCase().includes(trimmed.toLowerCase())), ...(data.items || [])];
@@ -168,7 +169,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     setBarcodeLoading(true);
     setBarcodeError(null);
     try {
-      const res = await fetch(`/api/foods/barcode/${encodeURIComponent(clean)}`);
+      const res = await fetch(apiUrl(`/api/foods/barcode/${encodeURIComponent(clean)}`));
       const data = await res.json();
       if (!res.ok) {
         setBarcodeError(data.error || 'Product not found.');
@@ -228,7 +229,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     setPhotoLoading(true);
     setPhotoError(null);
     try {
-      const res = await fetch('/api/ai/recognize-food', {
+      const res = await fetch(apiUrl('/api/ai/recognize-food'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

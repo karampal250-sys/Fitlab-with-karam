@@ -24,6 +24,7 @@ import { CalorieHeroRing, SmallMacroRing } from './MacroRings';
 import { DailyScheduleCard } from './DailyScheduleCard';
 import { ActivityBurnTracker } from './ActivityBurnTracker';
 import { deriveMealTimesFromWakeUp } from '../data/activitiesCatalog';
+import { apiUrl } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
 interface DashboardViewProps {
@@ -199,7 +200,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const fetchAiSuggestion = async () => {
     setIdeaLoading(true);
     try {
-      const res = await fetch('/api/ai/quick-suggestion', {
+      const res = await fetch(apiUrl('/api/ai/quick-suggestion'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

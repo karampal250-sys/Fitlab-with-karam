@@ -1,0 +1,110 @@
+name: Build Android APK & AAB
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Fit-Plat with Karam APK & AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build web bundle
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+        run: npm run build
+
+      - name: Install Capacitor Android tooling
+        run: npm install --no-save --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android
+
+      - name: Generate and sync Capacitor Android project
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Apply app launcher icons
+        run: |
+          if [ -f "public/pwa-512x512.png" ]; then
+            for dir in android/app/src/main/res/mipmap-*; do
+              if [ -f "$dir/ic_launcher.png" ]; then
+                cp public/pwa-192x192.png "$dir/ic_launcher.png"
+              fi
+              if [ -f "$dir/ic_launcher_round.png" ]; then
+                cp public/pwa-192x192.png "$dir/ic_launcher_round.png"
+              fi
+              if [ -f "$dir/ic_launcher_foreground.png" ]; then
+                cp public/pwa-maskable-512x512.png "$dir/ic_launcher_foreground.png"
+              fi
+            done
+          fi
+
+      - name: Build Debug APK & Release AAB
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          ./gradlew bundleRelease
+          ./gradlew assembleRelease
+
+      - name: Upload Debug APK (Direct Phone Install)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fit-plat-with-karam-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload Release AAB (Google Play Store)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fit-plat-with-karam-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - name: Upload Unsigned Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fit-plat-with-karam-release-unsigned-apk
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: warn
+
+      - name: Prepare direct download files
+        run: |
+          mkdir -p release-files
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-files/Fit-Plat-with-Karam.apk
+          cp android/app/build/outputs/bundle/release/app-release.aab release-files/Fit-Plat-with-Karam.aab
+
+      - name: Publish GitHub Release with Direct APK & AAB Links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          gh release create "$TAG" release-files/Fit-Plat-with-Karam.apk release-files/Fit-Plat-with-Karam.aab \
+            --title "Fit-Plat with Karam $TAG" \
+            --notes "Direct Android APK (install on phone) and AAB (Google Play Store)." \
+            --latest

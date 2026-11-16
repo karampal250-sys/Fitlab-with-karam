@@ -81,8 +81,14 @@ async function startServer() {
   const httpServer = http.createServer(app);
   app.use(express.json({ limit: '12mb' }));
   app.use((req, res, next) => {
-    if (req.path === '/manifest.webmanifest' || req.path === '/sw.js') {
+    if (req.path === '/manifest.webmanifest' || req.path === '/sw.js' || req.path.startsWith('/api/')) {
       res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(204);
+        return;
+      }
     }
     next();
   });
@@ -537,11 +543,30 @@ Reply in ${context.language === 'hi' ? 'Hindi (Devanagari)' : 'English'}.`,
 
   // Vite middleware in dev / static dist in production
   if (process.env.NODE_ENV !== 'production') {
+    const hmrDisabled = process.env.DISABLE_HMR === 'true' || Boolean(process.env.K_SERVICE);
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
+      plugins: hmrDisabled
+        ? [
+            {
+              name: 'disable-hmr-websocket',
+              enforce: 'post',
+              transform(code, id) {
+                const cleanId = id.split('?')[0];
+                if (cleanId.endsWith('/vite/dist/client/client.mjs')) {
+                  return code
+                    .replace('async connect(handlers) {', 'async connect() { return;')
+                    .replace('wsTransport.send(data);', '');
+                }
+              },
+            },
+          ]
+        : [],
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer },
+        port: PORT,
+        hmr: hmrDisabled ? false : { server: httpServer },
+        ws: hmrDisabled ? false : { server: httpServer },
       },
       appType: 'spa',
     });

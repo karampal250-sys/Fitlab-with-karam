@@ -8,6 +8,7 @@ import type {
   MealType,
   UserProfile,
 } from '../types/fitplate';
+import { apiUrl } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
 interface CoachViewProps {
@@ -67,7 +68,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
     setMealLoading(true);
     setMealError(null);
     try {
-      const res = await fetch('/api/ai/meal-plan', {
+      const res = await fetch(apiUrl('/api/ai/meal-plan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -101,7 +102,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
     setWorkoutLoading(true);
     setWorkoutError(null);
     try {
-      const res = await fetch('/api/ai/workout-plan', {
+      const res = await fetch(apiUrl('/api/ai/workout-plan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -142,7 +143,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
     setChatLoading(true);
 
     try {
-      const res = await fetch('/api/ai/coach-chat', {
+      const res = await fetch(apiUrl('/api/ai/coach-chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
