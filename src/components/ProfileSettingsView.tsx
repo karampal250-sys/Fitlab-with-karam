@@ -30,6 +30,7 @@ interface ProfileSettingsViewProps {
   onToggleHealthSync: () => void;
   onEditOnboarding: () => void;
   onGoogleSignIn: () => void;
+  onFacebookSignIn: () => void;
   onSignOut: () => void;
   onExportJson: () => void;
   onDeleteAllData: () => Promise<void>;
@@ -47,6 +48,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   onToggleHealthSync,
   onEditOnboarding,
   onGoogleSignIn,
+  onFacebookSignIn,
   onSignOut,
   onExportJson,
   onDeleteAllData,
@@ -80,11 +82,14 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
             <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
               {isHi ? 'मेरी प्रोफ़ाइल और सेटिंग्स' : 'My Profile & Settings'}
             </div>
-            <h2 className="font-display text-xl font-bold truncate">{profile.name}</h2>
+            <h2 className="font-display text-xl font-bold truncate">
+              {profile.name} · {profile.age} {isHi ? 'वर्ष' : 'yrs'}
+            </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num mt-0.5">
-              {profile.dailyCalorieTarget} kcal/day · BMI {profile.bmi} · {profile.dietType} · {profile.currentWeightKg} →{' '}
+              {profile.dailyCalorieTarget} kcal/day · TDEE {profile.tdee} · BMI {profile.bmi} · {profile.currentWeightKg} →{' '}
               {profile.targetWeightKg} kg
               {profile.wakeUpTime ? ` · Wake ${profile.wakeUpTime}` : ''}
+              {profile.dateOfBirth ? ` · DOB ${profile.dateOfBirth}` : ''}
             </p>
           </div>
         </div>
@@ -186,7 +191,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         </div>
 
         {/* Cloud Auth & Offline Status */}
-        <div className="p-5 flex items-center justify-between gap-4">
+        <div className="p-5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             <div>
@@ -208,14 +213,24 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               {t(language, 'signOut')}
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={onGoogleSignIn}
-              className="min-h-[44px] px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5"
-            >
-              <LogIn className="w-4 h-4" />
-              {t(language, 'signInGoogle')}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onFacebookSignIn}
+                className="min-h-[44px] px-3.5 rounded-xl bg-[#1877F2] text-white text-xs font-semibold flex items-center gap-1.5"
+              >
+                <span className="font-bold">f</span>
+                {t(language, 'signInFacebook')}
+              </button>
+              <button
+                type="button"
+                onClick={onGoogleSignIn}
+                className="min-h-[44px] px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5"
+              >
+                <LogIn className="w-4 h-4" />
+                {t(language, 'signInGoogle')}
+              </button>
+            </div>
           )}
         </div>
 

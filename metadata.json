@@ -1,6 +1,6 @@
 {
   "name": "FitPlate",
   "description": "Personal calorie tracker, Indian and global nutrition database, progress planner, and AI meal & workout coach.",
-  "requestFramePermissions": ["camera"],
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

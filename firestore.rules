@@ -12,7 +12,10 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn() && (
+        request.auth.token.email_verified == true
+        || request.auth.token.firebase.sign_in_provider == 'facebook.com'
+      );
     }
 
     function isOwner(userId) {
@@ -52,15 +55,16 @@ service cloud.firestore {
         'language', 'darkMode', 'healthSyncEnabled', 'createdAt', 'updatedAt'
       ])
       && data.keys().hasOnly([
-        'uid', 'name', 'age', 'gender', 'heightCm', 'currentWeightKg', 'targetWeightKg',
+        'uid', 'name', 'dateOfBirth', 'age', 'gender', 'heightCm', 'currentWeightKg', 'targetWeightKg',
         'activityLevel', 'dietType', 'allergies', 'timelineWeeks', 'goalType',
         'bmi', 'bmr', 'tdee', 'dailyCalorieTarget',
         'proteinTargetG', 'carbsTargetG', 'fatTargetG', 'fiberTargetG',
-        'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'createdAt', 'updatedAt'
+        'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'authProvider', 'createdAt', 'updatedAt'
       ])
       && data.uid == userId
       && isValidId(data.uid)
       && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+      && (!('dateOfBirth' in data) || isValidDateStr(data.dateOfBirth))
       && data.age is int && data.age >= 13 && data.age <= 120
       && data.gender in ['female', 'male', 'other']
       && data.heightCm is number && data.heightCm >= 90 && data.heightCm <= 250
@@ -84,6 +88,7 @@ service cloud.firestore {
       && data.darkMode is bool
       && data.healthSyncEnabled is bool
       && (!('wakeUpTime' in data) || isValidTimeStr(data.wakeUpTime))
+      && (!('authProvider' in data) || data.authProvider in ['google', 'facebook', 'local'])
       && data.createdAt is timestamp
       && data.updatedAt is timestamp;
     }
@@ -232,11 +237,11 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'age', 'gender', 'heightCm', 'currentWeightKg', 'targetWeightKg',
+            'name', 'dateOfBirth', 'age', 'gender', 'heightCm', 'currentWeightKg', 'targetWeightKg',
             'activityLevel', 'dietType', 'allergies', 'timelineWeeks', 'goalType',
             'bmi', 'bmr', 'tdee', 'dailyCalorieTarget',
             'proteinTargetG', 'carbsTargetG', 'fatTargetG', 'fiberTargetG',
-            'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'updatedAt'
+            'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'authProvider', 'updatedAt'
           ])
         );
       allow delete: if isValidId(userId) && isOwner(userId);

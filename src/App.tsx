@@ -40,12 +40,15 @@ import type {
 import {
   auth,
   googleProvider,
+  facebookProvider,
+  extractSocialProfile,
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   signOut,
   deleteUser,
   testFirestoreConnection,
+  type SocialPrefillData,
 } from './services/firebaseClient';
 import {
   deleteActivityLogFromCloud,
@@ -80,6 +83,7 @@ import { ProgressView } from './components/ProgressView';
 import { CoachView } from './components/CoachView';
 import { ProfileSettingsView } from './components/ProfileSettingsView';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { BrandLogo } from './components/BrandLogo';
 
 type AppTab = 'today' | 'log' | 'progress' | 'coach' | 'settings';
 
@@ -122,55 +126,13 @@ function shiftDateIso(daysOffset: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function createDefaultStarterProfile(language: Language, darkMode: boolean): UserProfile {
-  const calc = calculateNutritionPlan({
-    age: 28,
-    gender: 'male',
-    heightCm: 173,
-    currentWeightKg: 75,
-    targetWeightKg: 70,
-    activityLevel: 'moderate',
-    dietType: 'veg',
-    timelineWeeks: 12,
-  });
-  return {
-    uid: 'local_user',
-    name: 'Karam User',
-    age: 28,
-    gender: 'male',
-    heightCm: 173,
-    currentWeightKg: 75,
-    targetWeightKg: 70,
-    activityLevel: 'moderate',
-    dietType: 'veg',
-    allergies: [],
-    timelineWeeks: 12,
-    goalType: calc.goalType,
-    bmi: calc.bmi,
-    bmr: calc.bmr,
-    tdee: calc.tdee,
-    dailyCalorieTarget: calc.dailyCalorieTarget,
-    proteinTargetG: calc.proteinTargetG,
-    carbsTargetG: calc.carbsTargetG,
-    fatTargetG: calc.fatTargetG,
-    fiberTargetG: calc.fiberTargetG,
-    language,
-    darkMode,
-    healthSyncEnabled: false,
-    wakeUpTime: '07:00',
-    reminders: DEFAULT_REMINDERS,
-    encryptionEnabled: true,
-    under18Acknowledged: false,
-  };
-}
-
 export default function App() {
   const [hydrated, setHydrated] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>('today');
   const [activeDate, setActiveDate] = useState<string>(() => todayIso());
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showSetupBanner, setShowSetupBanner] = useState(false);
+  const [socialPrefill, setSocialPrefill] = useState<SocialPrefillData | null>(null);
 
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -226,7 +188,14 @@ export default function App() {
   // Load encrypted offline state + verify Firestore connectivity on mount
   useEffect(() => {
     testFirestoreConnection().catch(() => {});
-    getRedirectResult(auth).catch(() => {});
+    getRedirectResult(auth)
+      .then(async (res) => {
+        if (res) {
+          const info = await extractSocialProfile(res);
+          if (info) setSocialPrefill(info);
+        }
+      })
+      .catch(() => {});
     loadEncryptedState<PersistedAppState>().then((saved) => {
       if (saved && saved.profile) {
         setProfile(saved.profile);
@@ -257,11 +226,9 @@ export default function App() {
         );
         setLanguage(saved.language || 'en');
         setDarkMode(Boolean(saved.darkMode));
-      } else {
-        const lang = saved?.language || 'en';
-        const dark = Boolean(saved?.darkMode);
-        setProfile(createDefaultStarterProfile(lang, dark));
-        setShowSetupBanner(true);
+      } else if (saved) {
+        setLanguage(saved.language || 'en');
+        setDarkMode(Boolean(saved.darkMode));
       }
       setHydrated(true);
     });
@@ -316,7 +283,6 @@ export default function App() {
           const cloud = await fetchUserCloudBundle(user.uid);
           if (cloud.profile) {
             setProfile(cloud.profile);
-            setShowSetupBanner(false);
             setFoodLogs(cloud.foodLogs);
             setDailyMetricsMap(cloud.dailyMetrics);
             setCustomFoods(cloud.customFoods);
@@ -338,6 +304,15 @@ export default function App() {
             const migrated = { ...profileRef.current, uid: user.uid };
             setProfile(migrated);
             await syncProfileToCloud(migrated);
+          } else {
+            // New social user without saved health profile: populate name/DOB prefill for profile setup
+            const providerId = user.providerData?.[0]?.providerId || '';
+            setSocialPrefill((prev) => ({
+              name: prev?.name || user.displayName || undefined,
+              dateOfBirth: prev?.dateOfBirth,
+              email: prev?.email || user.email || null,
+              provider: providerId.includes('facebook') ? 'facebook' : prev?.provider || 'google',
+            }));
           }
         } catch {
           // Keep offline encrypted state seamlessly
@@ -394,8 +369,10 @@ export default function App() {
 
   const handleGoogleSignIn = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
-      showToast(language === 'hi' ? 'Google से सिंक हो गया' : 'Signed in and syncing with Firebase');
+      const cred = await signInWithPopup(auth, googleProvider);
+      const info = await extractSocialProfile(cred);
+      if (info) setSocialPrefill(info);
+      showToast(language === 'hi' ? 'Google से सिंक हो गया' : 'Signed in with Google');
     } catch (err) {
       const code = (err as { code?: string })?.code || '';
       if (
@@ -415,6 +392,31 @@ export default function App() {
     }
   };
 
+  const handleFacebookSignIn = async () => {
+    try {
+      const cred = await signInWithPopup(auth, facebookProvider);
+      const info = await extractSocialProfile(cred);
+      if (info) setSocialPrefill(info);
+      showToast(language === 'hi' ? 'Facebook ID से लॉगिन हो गया' : 'Signed in with Facebook');
+    } catch (err) {
+      const code = (err as { code?: string })?.code || '';
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/cancelled-popup-request'
+      ) {
+        try {
+          await signInWithRedirect(auth, facebookProvider);
+          return;
+        } catch (redirErr) {
+          showToast(redirErr instanceof Error ? redirErr.message : 'Facebook login failed');
+          return;
+        }
+      }
+      showToast(err instanceof Error ? err.message : 'Facebook login requires enabling Facebook Auth in Firebase Console');
+    }
+  };
+
   const handleSignOut = async () => {
     await signOut(auth);
     showToast(language === 'hi' ? 'साइन आउट हो गया' : 'Signed out');
@@ -429,7 +431,6 @@ export default function App() {
       darkMode,
     };
     setProfile(finalized);
-    setShowSetupBanner(false);
     if (nextProfile.reminders) {
       setReminders(nextProfile.reminders);
     } else if (nextProfile.wakeUpTime) {
@@ -788,11 +789,13 @@ export default function App() {
     return (
       <OnboardingFlow
         initialProfile={profile}
+        socialPrefill={socialPrefill}
         language={language}
         onChangeLanguage={handleChangeLanguage}
         onComplete={handleCompleteOnboarding}
         onCancel={editingOnboarding && profile ? () => setEditingOnboarding(false) : undefined}
         onGoogleSignIn={handleGoogleSignIn}
+        onFacebookSignIn={handleFacebookSignIn}
         isSignedIn={Boolean(firebaseUser)}
         userEmail={firebaseUser?.email}
       />
@@ -810,7 +813,7 @@ export default function App() {
   const userInitial = (profile.name || 'K').trim().charAt(0).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 pb-24 md:pb-10">
+    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 pb-32 md:pb-10">
       {/* Top Bar: Mobile Menu + Brand — Desktop Nav — Profile + Add Food CTA */}
       <header className="sticky top-0 z-30 pt-[env(safe-area-inset-top)] bg-white/95 dark:bg-[#111a15]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-emerald-950">
         <div className="max-w-6xl mx-auto h-13 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-6">
@@ -828,9 +831,7 @@ export default function App() {
               onClick={() => setActiveTab('today')}
               className="font-display font-bold text-sm sm:text-lg tracking-tight text-slate-900 dark:text-white flex items-center gap-2 min-w-0"
             >
-              <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                FK
-              </span>
+              <BrandLogo size={30} />
               <span className="truncate">Fit-Plat with Karam</span>
             </button>
           </div>
@@ -893,39 +894,6 @@ export default function App() {
 
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-5">
-        {showSetupBanner && activeTab === 'today' && (
-          <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-xs sm:text-sm font-semibold text-emerald-900 dark:text-emerald-200">
-                {language === 'hi'
-                  ? 'अपना वज़न लक्ष्य, उठने का समय और शिफ्ट सेट करें'
-                  : 'Personalize your weight goal, wake-up time & shift alarms'}
-              </div>
-              <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                {language === 'hi'
-                  ? 'अभी डिफ़ॉल्ट प्लान सक्रिय है — कभी भी प्रोफ़ाइल से बदलें।'
-                  : 'Starter plan is active so you can explore right away — customize anytime.'}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setEditingOnboarding(true)}
-                className="min-h-[36px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
-              >
-                {language === 'hi' ? 'प्रोफ़ाइल सेट करें' : 'Setup Profile'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSetupBanner(false)}
-                aria-label="Dismiss"
-                className="min-h-[36px] min-w-[36px] rounded-xl text-emerald-700 dark:text-emerald-300 flex items-center justify-center"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
         {activeTab === 'today' && (
           <DashboardView
             profile={profile}
@@ -1050,6 +1018,7 @@ export default function App() {
             onToggleHealthSync={handleToggleHealthSync}
             onEditOnboarding={() => setEditingOnboarding(true)}
             onGoogleSignIn={handleGoogleSignIn}
+            onFacebookSignIn={handleFacebookSignIn}
             onSignOut={handleSignOut}
             onExportJson={handleExportJson}
             onDeleteAllData={handleDeleteAllData}
@@ -1285,17 +1254,30 @@ export default function App() {
                   {t(language, 'signOut')}
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    handleGoogleSignIn();
-                  }}
-                  className="w-full min-h-[42px] px-3.5 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-2.5"
-                >
-                  <LogIn className="w-4 h-4" />
-                  {t(language, 'signInGoogle')}
-                </button>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      handleFacebookSignIn();
+                    }}
+                    className="w-full min-h-[42px] px-3.5 rounded-xl bg-[#1877F2] text-white text-xs font-semibold flex items-center gap-2.5"
+                  >
+                    <span className="font-bold text-sm">f</span>
+                    {t(language, 'signInFacebook')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      handleGoogleSignIn();
+                    }}
+                    className="w-full min-h-[42px] px-3.5 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-2.5"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    {t(language, 'signInGoogle')}
+                  </button>
+                </div>
               )}
 
               <button
@@ -1318,8 +1300,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Mobile Bottom Navigation Bar with Safe-Area Support */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom)] bg-white/95 dark:bg-[#111a15]/95 backdrop-blur-md border-t border-slate-200 dark:border-emerald-950">
+      {/* Mobile Bottom Navigation Bar — Cleared above Android system Back/Home/Menu keys */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 mobile-bottom-safe-nav bg-white/95 dark:bg-[#111a15]/95 backdrop-blur-md border-t border-slate-200 dark:border-emerald-950 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
         <div className="h-14 grid grid-cols-5 items-center">
           {navItems.map(([id, label, Icon]) => {
             const active = activeTab === id;

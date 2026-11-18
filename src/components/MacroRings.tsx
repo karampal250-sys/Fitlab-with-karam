@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface CalorieRingProps {
   eaten: number;
@@ -6,6 +6,7 @@ interface CalorieRingProps {
   burned: number;
   labelRemaining: string;
   labelOver: string;
+  labelTarget?: string;
 }
 
 export const CalorieHeroRing: React.FC<CalorieRingProps> = ({
@@ -14,29 +15,30 @@ export const CalorieHeroRing: React.FC<CalorieRingProps> = ({
   burned,
   labelRemaining,
   labelOver,
+  labelTarget = 'Target',
 }) => {
   const effectiveTarget = target + burned;
   const remaining = effectiveTarget - eaten;
   const pct = Math.min(1, Math.max(0, eaten / Math.max(1, effectiveTarget)));
-  const radius = 62;
+  const radius = 64;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - pct);
   const isOver = remaining < 0;
 
   return (
-    <div className="relative flex items-center justify-center w-40 h-40 shrink-0">
-      <svg className="w-full h-full -rotate-90" viewBox="0 0 148 148" aria-hidden="true">
+    <div className="relative flex items-center justify-center w-44 h-44 shrink-0">
+      <svg className="w-full h-full -rotate-90" viewBox="0 0 156 156" aria-hidden="true">
         <circle
-          cx="74"
-          cy="74"
+          cx="78"
+          cy="78"
           r={radius}
           fill="none"
           strokeWidth="12"
           className="stroke-slate-100 dark:stroke-emerald-950/80"
         />
         <circle
-          cx="74"
-          cy="74"
+          cx="78"
+          cy="78"
           r={radius}
           fill="none"
           strokeWidth="12"
@@ -48,15 +50,18 @@ export const CalorieHeroRing: React.FC<CalorieRingProps> = ({
           }`}
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-2">
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+          {labelTarget} {target}
+        </span>
         <span
-          className={`font-mono-num text-3xl font-bold tracking-tight ${
+          className={`font-mono-num text-2xl sm:text-3xl font-bold tracking-tight leading-tight mt-0.5 ${
             isOver ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'
           }`}
         >
           {Math.abs(remaining)}
         </span>
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
           {isOver ? labelOver : labelRemaining}
         </span>
       </div>
@@ -121,3 +126,119 @@ export const SmallMacroRing: React.FC<SmallMacroRingProps> = ({
     </div>
   );
 };
+
+interface WaterProgressRingProps {
+  waterMl: number;
+  waterGoalMl: number;
+  labelGoalReached: string;
+  labelOfGoal: string;
+}
+
+export const WaterProgressRing: React.FC<WaterProgressRingProps> = ({
+  waterMl,
+  waterGoalMl,
+  labelGoalReached,
+  labelOfGoal,
+}) => {
+  const targetPct = Math.min(100, Math.max(0, (waterMl / Math.max(500, waterGoalMl)) * 100));
+  const [animatedPct, setAnimatedPct] = useState(0);
+  const currentPctRef = useRef(0);
+
+  useEffect(() => {
+    const startVal = currentPctRef.current;
+    const endVal = targetPct;
+    if (Math.abs(endVal - startVal) < 0.05) {
+      currentPctRef.current = endVal;
+      setAnimatedPct(endVal);
+      return;
+    }
+
+    const durationMs = 550;
+    let startTime: number | null = null;
+    let rafId = 0;
+
+    const step = (now: number) => {
+      if (startTime === null) startTime = now;
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const nextVal = startVal + (endVal - startVal) * eased;
+      currentPctRef.current = nextVal;
+      setAnimatedPct(nextVal);
+      if (progress < 1) {
+        rafId = requestAnimationFrame(step);
+      } else {
+        currentPctRef.current = endVal;
+        setAnimatedPct(endVal);
+      }
+    };
+
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  }, [targetPct]);
+
+  const radius = 48;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - animatedPct / 100);
+  const goalMet = targetPct >= 100;
+  const innerFillHeight = Math.min(100, Math.max(0, animatedPct));
+
+  return (
+    <div
+      className="relative flex items-center justify-center w-32 h-32 shrink-0"
+      role="progressbar"
+      aria-valuenow={Math.round(targetPct)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="Daily water intake progress"
+    >
+      {/* Subtle rising liquid level inside the inner circle */}
+      <div className="absolute inset-3 rounded-full overflow-hidden bg-sky-50/70 dark:bg-sky-950/30 border border-sky-100/80 dark:border-sky-900/40 pointer-events-none">
+        <div
+          className={`absolute left-0 right-0 bottom-0 transition-colors duration-300 ${
+            goalMet ? 'bg-emerald-400/20 dark:bg-emerald-500/20' : 'bg-sky-400/20 dark:bg-sky-500/25'
+          }`}
+          style={{ height: `${innerFillHeight}%` }}
+        />
+      </div>
+
+      <svg className="w-full h-full -rotate-90 relative z-10" viewBox="0 0 120 120" aria-hidden="true">
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          strokeWidth="10"
+          className="stroke-slate-100 dark:stroke-sky-950/70"
+        />
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          strokeWidth="10"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          className={
+            goalMet ? 'stroke-emerald-500 dark:stroke-emerald-400' : 'stroke-sky-500 dark:stroke-sky-400'
+          }
+        />
+      </svg>
+
+      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center px-2">
+        <span
+          className={`font-mono-num text-2xl font-bold leading-none ${
+            goalMet ? 'text-emerald-600 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'
+          }`}
+        >
+          {Math.round(animatedPct)}%
+        </span>
+        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mt-1">
+          {goalMet ? labelGoalReached : labelOfGoal}
+        </span>
+      </div>
+    </div>
+  );
+};
+

@@ -51,3 +51,14 @@ html.dark body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Guarantee bottom navigation bar clears Android system Back/Home/Menu keys & gesture bars */
+.mobile-bottom-safe-nav {
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+@media (display-mode: standalone) {
+  .mobile-bottom-safe-nav {
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  }
+}

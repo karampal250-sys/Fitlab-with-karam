@@ -1,39 +1,75 @@
-import React, { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, Clock, Globe, Moon, ShieldCheck, Sunrise, Utensils } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Calendar,
+  Check,
+  Clock,
+  Globe,
+  Moon,
+  ShieldCheck,
+  Sunrise,
+  Utensils,
+} from 'lucide-react';
 import type { ActivityLevel, DietType, Gender, Language, UserProfile } from '../types/fitplate';
+import type { SocialPrefillData } from '../services/firebaseClient';
 import { calculateNutritionPlan } from '../utils/nutritionMath';
 import { deriveMealTimesFromWakeUp, isNightShiftWakeTime } from '../data/activitiesCatalog';
 import { t } from '../i18n/translations';
+import { BrandLogo } from './BrandLogo';
 
 interface OnboardingFlowProps {
   initialProfile?: UserProfile | null;
+  socialPrefill?: SocialPrefillData | null;
   language: Language;
   onChangeLanguage: (lang: Language) => void;
   onComplete: (profile: UserProfile) => void;
   onCancel?: () => void;
   onGoogleSignIn?: () => void;
+  onFacebookSignIn?: () => void;
   isSignedIn?: boolean;
   userEmail?: string | null;
 }
 
 const ALLERGY_OPTIONS = ['Dairy', 'Nuts', 'Gluten', 'Soy', 'Eggs', 'Fish', 'Shellfish'];
 
+export function calculateAgeFromDob(dobStr: string): number | null {
+  if (!dobStr || !/^\d{4}-\d{2}-\d{2}$/.test(dobStr)) return null;
+  const dob = new Date(`${dobStr}T00:00:00`);
+  if (Number.isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age >= 5 && age <= 120 ? age : null;
+}
+
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   initialProfile,
+  socialPrefill,
   language,
   onChangeLanguage,
   onComplete,
   onCancel,
   onGoogleSignIn,
+  onFacebookSignIn,
   isSignedIn,
   userEmail,
 }) => {
-  const [name, setName] = useState(initialProfile?.name || 'Aarav');
-  const [age, setAge] = useState(initialProfile?.age || 28);
+  const [name, setName] = useState(initialProfile?.name || socialPrefill?.name || '');
+  const [dateOfBirth, setDateOfBirth] = useState(
+    initialProfile?.dateOfBirth || socialPrefill?.dateOfBirth || ''
+  );
   const [gender, setGender] = useState<Gender>(initialProfile?.gender || 'male');
-  const [heightCm, setHeightCm] = useState(initialProfile?.heightCm || 173);
-  const [currentWeightKg, setCurrentWeightKg] = useState(initialProfile?.currentWeightKg || 78);
-  const [targetWeightKg, setTargetWeightKg] = useState(initialProfile?.targetWeightKg || 70);
+  const [heightCm, setHeightCm] = useState<number>(initialProfile?.heightCm || 170);
+  const [currentWeightKg, setCurrentWeightKg] = useState<string>(
+    initialProfile?.currentWeightKg ? String(initialProfile.currentWeightKg) : ''
+  );
+  const [targetWeightKg, setTargetWeightKg] = useState<string>(
+    initialProfile?.targetWeightKg ? String(initialProfile.targetWeightKg) : ''
+  );
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>(initialProfile?.activityLevel || 'moderate');
   const [dietType, setDietType] = useState<DietType>(initialProfile?.dietType || 'veg');
   const [allergies, setAllergies] = useState<string[]>(initialProfile?.allergies || []);
@@ -41,21 +77,39 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [timelineWeeks, setTimelineWeeks] = useState(initialProfile?.timelineWeeks || 12);
   const [wakeUpTime, setWakeUpTime] = useState(initialProfile?.wakeUpTime || '07:00');
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(true);
+  const [formError, setFormError] = useState<string | null>(null);
   const [heroImgError, setHeroImgError] = useState(false);
+
+  // Sync Facebook / Google prefill info when social login completes
+  useEffect(() => {
+    if (!socialPrefill) return;
+    if (socialPrefill.name && !name.trim()) setName(socialPrefill.name);
+    if (socialPrefill.dateOfBirth && !dateOfBirth) setDateOfBirth(socialPrefill.dateOfBirth);
+  }, [socialPrefill]);
+
+  const computedAge = useMemo(() => {
+    const fromDob = calculateAgeFromDob(dateOfBirth);
+    if (fromDob !== null) return fromDob;
+    return initialProfile?.age || null;
+  }, [dateOfBirth, initialProfile?.age]);
+
+  const numericCurrentWeight = Number(currentWeightKg) || 70;
+  const numericTargetWeight = Number(targetWeightKg) || numericCurrentWeight;
+  const effectiveAge = computedAge ?? 25;
 
   const calc = useMemo(
     () =>
       calculateNutritionPlan({
-        age: Math.max(13, Math.min(120, Number(age) || 25)),
+        age: Math.max(13, Math.min(120, effectiveAge)),
         gender,
         heightCm: Math.max(90, Math.min(250, Number(heightCm) || 170)),
-        currentWeightKg: Math.max(25, Math.min(350, Number(currentWeightKg) || 70)),
-        targetWeightKg: Math.max(25, Math.min(350, Number(targetWeightKg) || 65)),
+        currentWeightKg: Math.max(25, Math.min(350, numericCurrentWeight)),
+        targetWeightKg: Math.max(25, Math.min(350, numericTargetWeight)),
         activityLevel,
         dietType,
         timelineWeeks: Math.max(1, Math.min(260, Number(timelineWeeks) || 12)),
       }),
-    [age, gender, heightCm, currentWeightKg, targetWeightKg, activityLevel, dietType, timelineWeeks]
+    [effectiveAge, gender, heightCm, numericCurrentWeight, numericTargetWeight, activityLevel, dietType, timelineWeeks]
   );
 
   const toggleAllergy = (item: string) => {
@@ -72,12 +126,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   const buildProfilePayload = (): UserProfile => ({
     uid: initialProfile?.uid || 'local_user',
-    name: name.trim() || 'Karam User',
-    age: Math.max(13, Math.min(120, Math.round(age))),
+    name: name.trim(),
+    ...(dateOfBirth ? { dateOfBirth } : {}),
+    age: Math.max(13, Math.min(120, Math.round(effectiveAge))),
     gender,
-    heightCm: Number(heightCm),
-    currentWeightKg: Number(currentWeightKg),
-    targetWeightKg: Number(targetWeightKg),
+    heightCm: Number(heightCm) || 170,
+    currentWeightKg: numericCurrentWeight,
+    targetWeightKg: numericTargetWeight,
     activityLevel,
     dietType,
     allergies,
@@ -95,6 +150,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     darkMode: initialProfile?.darkMode ?? false,
     healthSyncEnabled: initialProfile?.healthSyncEnabled ?? false,
     wakeUpTime,
+    authProvider: socialPrefill?.provider || initialProfile?.authProvider || 'local',
     reminders: {
       ...deriveMealTimesFromWakeUp(wakeUpTime),
       waterIntervalMin: initialProfile?.reminders?.waterIntervalMin ?? 90,
@@ -103,21 +159,53 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       soundEnabled: initialProfile?.reminders?.soundEnabled ?? true,
     },
     encryptionEnabled: true,
-    under18Acknowledged: age < 18,
+    under18Acknowledged: effectiveAge < 18,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!disclaimerAccepted || !name.trim()) return;
+    setFormError(null);
+
+    if (!name.trim()) {
+      setFormError(isHi ? 'कृपया अपना पूरा नाम दर्ज करें।' : 'Please enter your full name.');
+      return;
+    }
+    if (!computedAge || computedAge < 13) {
+      setFormError(
+        isHi
+          ? 'कृपया अपनी सही जन्मतिथि (Date of Birth) चुनें (न्यूनतम 13 वर्ष)।'
+          : 'Please enter a valid Date of Birth (minimum age 13 years).'
+      );
+      return;
+    }
+    if (!currentWeightKg || Number(currentWeightKg) < 25 || Number(currentWeightKg) > 350) {
+      setFormError(isHi ? 'कृपया अपना वर्तमान वज़न (kg) दर्ज करें।' : 'Please enter your current weight (kg).');
+      return;
+    }
+    if (!targetWeightKg || Number(targetWeightKg) < 25 || Number(targetWeightKg) > 350) {
+      setFormError(isHi ? 'कृपया अपना लक्ष्य वज़न (kg) दर्ज करें।' : 'Please enter your target weight (kg).');
+      return;
+    }
+    if (!wakeUpTime) {
+      setFormError(isHi ? 'कृपया उठने का समय चुनें।' : 'Please enter your wake-up time.');
+      return;
+    }
+    if (!disclaimerAccepted) return;
+
     onComplete(buildProfilePayload());
   };
 
   const isHi = language === 'hi';
+  const maxDobStr = useMemo(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 13);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 py-5 px-4 sm:px-6 lg:px-8 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+    <div className="min-h-screen bg-stone-50 dark:bg-[#090e0b] text-slate-900 dark:text-slate-100 py-5 px-4 sm:px-6 lg:px-8 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Compact Responsive Top Header */}
+        {/* Top Header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             {onCancel && (
@@ -130,10 +218,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-display font-bold text-sm shrink-0">
-              FK
-            </div>
-            <span className="font-display font-bold text-base sm:text-xl tracking-tight truncate">Fit-Plat with Karam</span>
+            <BrandLogo size={36} />
+            <span className="font-display font-bold text-base sm:text-xl tracking-tight truncate">
+              Fit-Plat with Karam
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -145,39 +233,77 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               {isHi ? 'English' : 'हिन्दी'}
             </button>
-            {onGoogleSignIn && !isSignedIn && (
-              <button
-                type="button"
-                onClick={onGoogleSignIn}
-                className="min-h-[40px] px-3.5 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
-              >
-                {t(language, 'signInGoogle')}
-              </button>
-            )}
             {isSignedIn && userEmail && (
-              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium truncate max-w-[160px]">
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium truncate max-w-[180px]">
                 {userEmail}
               </span>
             )}
-            {!onCancel && (
-              <button
-                type="button"
-                onClick={() => onComplete(buildProfilePayload())}
-                className="min-h-[40px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
-              >
-                {isHi ? 'सीधे शुरू करें' : 'Quick Start'}
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
         </div>
+
+        {/* Social Quick Login Card (Facebook & Google) */}
+        {!isSignedIn && (onFacebookSignIn || onGoogleSignIn) && (
+          <div className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="font-display font-bold text-sm sm:text-base text-slate-900 dark:text-white">
+                {isHi
+                  ? 'Facebook या Google ID से तुरंत प्रोफ़ाइल भरें'
+                  : 'Sign in with Facebook or Google ID'}
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {isHi
+                  ? 'Facebook लॉगिन से आपका नाम और जन्मतिथि अपने आप भर जाएगी — बस वज़न, लक्ष्य वज़न और उठने का समय दर्ज करें।'
+                  : 'Facebook imports your Name & Date of Birth automatically — then just enter your Weight, Target Weight & Wake-Up Time.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {onFacebookSignIn && (
+                <button
+                  type="button"
+                  onClick={onFacebookSignIn}
+                  className="min-h-[44px] px-4 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] text-white text-xs font-semibold flex items-center gap-2 whitespace-nowrap transition-colors"
+                >
+                  <span className="w-5 h-5 rounded-full bg-white text-[#1877F2] font-bold flex items-center justify-center text-xs">
+                    f
+                  </span>
+                  {t(language, 'signInFacebook')}
+                </button>
+              )}
+              {onGoogleSignIn && (
+                <button
+                  type="button"
+                  onClick={onGoogleSignIn}
+                  className="min-h-[44px] px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold hover:opacity-90 transition-opacity whitespace-nowrap"
+                >
+                  {t(language, 'signInGoogle')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {socialPrefill && (
+          <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs sm:text-sm text-emerald-900 dark:text-emerald-100">
+            {socialPrefill.provider === 'facebook'
+              ? isHi
+                ? `Facebook ID से जुड़ गया${socialPrefill.name ? ` (${socialPrefill.name})` : ''}। कृपया अपना वज़न, लक्ष्य वज़न, उठने का समय${
+                    socialPrefill.dateOfBirth ? '' : ' और जन्मतिथि'
+                  } नीचे भरें।`
+                : `Connected with Facebook${socialPrefill.name ? ` (${socialPrefill.name})` : ''}! Please complete your Current Weight, Target Weight, Wake-Up Time${
+                    socialPrefill.dateOfBirth ? '' : ', and Date of Birth'
+                  } below to create your profile.`
+              : isHi
+              ? 'Google अकाउंट से जुड़ गया! नीचे अपनी जानकारी भरें और सबमिट करें।'
+              : 'Connected with Google! Please complete your profile details below to get started.'}
+          </div>
+        )}
 
         {/* Hero Split */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           <div className="lg:col-span-7 bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-6 sm:p-8 flex flex-col justify-between">
             <div className="space-y-3">
               <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tracking-wide">
-                {isHi ? 'व्यक्तिगत पोषण योजनाकार' : 'Personal Nutrition & Goal Engine'}
+                {isHi ? 'प्रोफ़ाइल सेटअप आवश्यक' : 'Create Your Personal Profile'}
               </p>
               <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-balance">
                 {t(language, 'onboardingTitle')}
@@ -199,9 +325,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">kcal / day</div>
               </div>
               <div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">TDEE</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {t(language, 'bodyNeedCalories')}
+                </div>
                 <div className="font-mono-num text-xl font-bold mt-0.5">{calc.tdee}</div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">maintenance</div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">TDEE kcal</div>
               </div>
               <div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -239,36 +367,53 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           </div>
         </div>
 
-        {/* Form */}
+        {/* Profile Creation Form */}
         <form
           onSubmit={handleSubmit}
           className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-6 sm:p-8 space-y-6"
         >
+          {formError && (
+            <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-700 dark:text-rose-200">
+              {formError}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                {isHi ? 'आपका नाम' : 'Full Name'}
+                {isHi ? 'आपका पूरा नाम *' : 'Full Name *'}
               </label>
               <input
                 type="text"
                 required
                 maxLength={80}
+                placeholder={isHi ? 'अपना नाम लिखें...' : 'Enter your name...'}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
 
+            {/* Date of Birth with automatic Age display */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                {isHi ? 'आयु (वर्ष)' : 'Age (years)'}
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  {isHi ? 'जन्मतिथि (DOB) *' : 'Date of Birth *'}
+                </label>
+                {computedAge !== null && (
+                  <span className="font-mono-num text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                    {isHi ? `आयु: ${computedAge} वर्ष` : `Age: ${computedAge} yrs`}
+                  </span>
+                )}
+              </div>
               <input
-                type="number"
-                min={13}
-                max={100}
-                value={age}
-                onChange={(e) => setAge(Number(e.target.value))}
+                type="date"
+                required
+                min="1910-01-01"
+                max={maxDobStr}
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
                 className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
@@ -311,30 +456,34 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                {isHi ? 'वर्तमान वज़न (kg)' : 'Current Weight (kg)'}
+                {isHi ? 'वर्तमान वज़न (kg) *' : 'Current Weight (kg) *'}
               </label>
               <input
                 type="number"
+                required
                 step="0.1"
-                min={30}
-                max={300}
+                min={25}
+                max={350}
+                placeholder="e.g. 74"
                 value={currentWeightKg}
-                onChange={(e) => setCurrentWeightKg(Number(e.target.value))}
+                onChange={(e) => setCurrentWeightKg(e.target.value)}
                 className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                {isHi ? 'लक्ष्य वज़न (kg)' : 'Target Weight (kg)'}
+                {isHi ? 'लक्ष्य वज़न (kg) *' : 'Target Weight (kg) *'}
               </label>
               <input
                 type="number"
+                required
                 step="0.1"
-                min={30}
-                max={300}
+                min={25}
+                max={350}
+                placeholder="e.g. 68"
                 value={targetWeightKg}
-                onChange={(e) => setTargetWeightKg(Number(e.target.value))}
+                onChange={(e) => setTargetWeightKg(e.target.value)}
                 className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
@@ -394,18 +543,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   ) : (
                     <Sunrise className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   )}
-                  {isHi ? 'उठने का समय (Day / Night Shift)' : 'Daily Wake-Up Time (Day or Night Shift)'}
+                  {isHi ? 'उठने का समय * (Day / Night Shift)' : 'Daily Wake-Up Time * (Day or Night Shift)'}
                 </label>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   {isHi
-                    ? 'नाइट शिफ्ट या डे शिफ्ट — आपका पूरा भोजन, पानी और अलार्म शेड्यूल आपके उठने के समय के अनुसार बनेगा।'
-                    : 'Working night shift or day shift? Your meal, water, workout & alarm schedule adapts around when you wake up.'}
+                    ? 'आपका पूरा भोजन, पानी और अलार्म शेड्यूल आपके उठने के समय के अनुसार बनेगा।'
+                    : 'Your meal, water, workout & alarm schedule adapts automatically around your wake-up time.'}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-slate-400" />
                 <input
                   type="time"
+                  required
                   value={wakeUpTime}
                   onChange={(e) => e.target.value && setWakeUpTime(e.target.value)}
                   className="min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -535,7 +685,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           )}
 
           {/* Under-18 Notice */}
-          {age < 18 && (
+          {effectiveAge < 18 && (
             <div className="p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 text-xs sm:text-sm text-sky-900 dark:text-sky-100">
               {isHi
                 ? '18 वर्ष से कम आयु के उपयोगकर्ताओं को किसी भी वज़न लक्ष्य से पहले डॉक्टर या माता-पिता से परामर्श लेना चाहिए।'
@@ -576,7 +726,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
             <button
               type="submit"
-              disabled={!disclaimerAccepted || !name.trim()}
+              disabled={!disclaimerAccepted}
               className="w-full min-h-[48px] rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-display font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
             >
               <Check className="w-4 h-4" />

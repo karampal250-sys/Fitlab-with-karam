@@ -1,5 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Barcode, Camera, Heart, Plus, Search, Sparkles, Utensils, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Barcode,
+  Check,
+  ChevronDown,
+  Edit3,
+  Heart,
+  Image as ImageIcon,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+  Upload,
+  Utensils,
+  X,
+} from 'lucide-react';
 import type { DietType, FoodItem, FoodLogEntry, Language, MealType } from '../types/fitplate';
 import { computeMacrosForGrams, INDIAN_AND_GLOBAL_FOODS } from '../data/indianFoods';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
@@ -20,7 +34,7 @@ interface FoodLoggerSheetProps {
   isStandaloneTab?: boolean;
 }
 
-type LoggerTab = 'search' | 'favorites' | 'recent' | 'barcode' | 'photo' | 'custom';
+type LoggerTab = 'search' | 'photo' | 'custom' | 'barcode' | 'favorites' | 'recent';
 
 interface AiDetectedFood {
   name: string;
@@ -32,6 +46,33 @@ interface AiDetectedFood {
   carbs: number;
   fat: number;
   fiber: number;
+}
+
+function resizeDataUrlIfNeeded(dataUrl: string, maxDim = 1280): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (!w || !h || (w <= maxDim && h <= maxDim && dataUrl.length < 1_400_000)) {
+        resolve(dataUrl);
+        return;
+      }
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
@@ -54,6 +95,10 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FoodItem[]>(INDIAN_AND_GLOBAL_FOODS);
   const [isSearching, setIsSearching] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [activeLetter, setActiveLetter] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const searchDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Selected food serving adjuster
   const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
@@ -64,19 +109,16 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [barcodeInput, setBarcodeInput] = useState('');
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
-  const [cameraActive, setCameraActive] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
 
-  // AI Photo state
+  // Food Photo Upload nutrition calculation state
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoHint, setPhotoHint] = useState('');
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [detectedItems, setDetectedItems] = useState<AiDetectedFood[]>([]);
   const [dishSummary, setDishSummary] = useState('');
+  const [loggedAllDone, setLoggedAllDone] = useState(false);
 
-  // Custom Food & Recipe Builder state
+  // Manual Custom Food & Recipe Builder state
   const [customName, setCustomName] = useState('');
   const [customDiet, setCustomDiet] = useState<DietType>('veg');
   const [customUnit, setCustomUnit] = useState<'katori' | 'piece' | 'gram' | 'cup' | 'plate'>('katori');
@@ -105,7 +147,8 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     const localFirst = allKnownFoods.filter(
       (f) =>
         f.name.toLowerCase().includes(trimmed.toLowerCase()) ||
-        f.nameHi.toLowerCase().includes(trimmed.toLowerCase())
+        f.nameHi.toLowerCase().includes(trimmed.toLowerCase()) ||
+        f.category.toLowerCase().includes(trimmed.toLowerCase())
     );
     setSearchResults(localFirst);
 
@@ -134,38 +177,16 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   }, [query, customFoods.length]);
 
   useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((tr) => tr.stop());
+    const onDocClick = (e: MouseEvent) => {
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
       }
     };
+    document.addEventListener('mousedown', onDocClick);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+    };
   }, []);
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((tr) => tr.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-  };
-
-  const startCamera = async () => {
-    setBarcodeError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      streamRef.current = stream;
-      setCameraActive(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      }, 60);
-    } catch {
-      setBarcodeError(
-        isHi ? 'कैमरा उपलब्ध नहीं है। नीचे बारकोड नंबर दर्ज करें।' : 'Camera permission unavailable. Enter a barcode number below.'
-      );
-    }
-  };
 
   const lookupBarcode = async (code: string) => {
     const clean = code.trim();
@@ -179,7 +200,6 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       if (!ok || !data) {
         const offlineHit = allKnownFoods.find((f) => f.barcode === clean);
         if (offlineHit) {
-          stopCamera();
           setSelectedFood(offlineHit);
           setSelectedServingIdx(0);
           setServingQty(1);
@@ -187,7 +207,6 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
           setBarcodeError(data?.error || (isHi ? 'प्रोडक्ट नहीं मिला।' : 'Product not found.'));
         }
       } else if (data.item) {
-        stopCamera();
         setSelectedFood(data.item);
         setSelectedServingIdx(0);
         setServingQty(1);
@@ -206,30 +225,38 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, autoAnalyzeOnSelect = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      setPhotoPreview(String(reader.result));
+    reader.onload = async () => {
+      const resized = await resizeDataUrlIfNeeded(String(reader.result));
+      setPhotoPreview(resized);
       setDetectedItems([]);
       setDishSummary('');
       setPhotoError(null);
+      setLoggedAllDone(false);
+      if (autoAnalyzeOnSelect) {
+        setActiveTab('photo');
+        void analyzeFoodWithAi(resized);
+      }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
-  const loadSamplePhotoForAi = async (imgPath: string, hintText: string) => {
+  const loadSamplePhotoForAi = async (imgPath: string) => {
     setPhotoError(null);
-    setPhotoHint(hintText);
     try {
       const resp = await fetch(imgPath);
       const blob = await resp.blob();
       const reader = new FileReader();
-      reader.onload = () => {
-        setPhotoPreview(String(reader.result));
+      reader.onload = async () => {
+        const resized = await resizeDataUrlIfNeeded(String(reader.result));
+        setPhotoPreview(resized);
         setDetectedItems([]);
         setDishSummary('');
+        setLoggedAllDone(false);
       };
       reader.readAsDataURL(blob);
     } catch {
@@ -237,32 +264,47 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     }
   };
 
-  const analyzeFoodPhoto = async () => {
-    if (!photoPreview) return;
+  const analyzeFoodWithAi = async (overridePhoto?: string) => {
+    const activePhoto = overridePhoto ?? photoPreview;
+    if (!activePhoto) {
+      setPhotoError(
+        isHi ? 'कृपया पहले भोजन की तस्वीर अपलोड करें।' : 'Please upload a food photo first.'
+      );
+      return;
+    }
+
+    const detectedImgMime = activePhoto.match(/^data:([^;]+);/)?.[1] || 'image/jpeg';
+
     setPhotoLoading(true);
     setPhotoError(null);
+    setLoggedAllDone(false);
     try {
-      const { ok, data } = await safeFetchJson<{ dishSummary?: string; items?: AiDetectedFood[]; error?: string }>(
-        apiUrl('/api/ai/recognize-food'),
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: photoPreview,
-            mimeType: photoPreview.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
-            hint: photoHint,
-            language,
-          }),
-        }
-      );
+      const { ok, data } = await safeFetchJson<{
+        dishSummary?: string;
+        items?: AiDetectedFood[];
+        error?: string;
+      }>(apiUrl('/api/ai/recognize-food'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: activePhoto,
+          imageMimeType: detectedImgMime,
+          language,
+        }),
+      });
       if (!ok || !data) {
-        setPhotoError(data?.error || (isHi ? 'फ़ोटो पहचान अभी उपलब्ध नहीं है।' : 'Photo recognition unavailable offline.'));
+        setPhotoError(
+          data?.error ||
+            (isHi
+              ? 'फ़ोटो से पोषण गणना अभी उपलब्ध नहीं है। आप "मैनुअल फ़ूड" से दर्ज कर सकते हैं।'
+              : 'Photo nutrition calculation failed or is unavailable offline. You can use Manual Food entry.')
+        );
       } else {
         setDishSummary(data.dishSummary || '');
         setDetectedItems(data.items || []);
       }
     } catch {
-      setPhotoError(isHi ? 'नेटवर्क त्रुटि। कृपया पुनः प्रयास करें।' : 'Network error analyzing photo.');
+      setPhotoError(isHi ? 'नेटवर्क त्रुटि। कृपया पुनः प्रयास करें।' : 'Network error calculating food nutrition.');
     } finally {
       setPhotoLoading(false);
     }
@@ -309,23 +351,43 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       mealType,
       foodId: `ai_${item.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 32)}`,
       foodName: item.name,
-      servingUnit: item.servingUnit,
-      servingQty: item.servingQty,
-      grams: item.grams,
+      servingUnit: item.servingUnit || 'serving',
+      servingQty: item.servingQty || 1,
+      grams: item.grams || 100,
       calories: Math.round(item.calories),
-      protein: item.protein,
-      carbs: item.carbs,
-      fat: item.fat,
-      fiber: item.fiber,
+      protein: Number(item.protein) || 0,
+      carbs: Number(item.carbs) || 0,
+      fat: Number(item.fat) || 0,
+      fiber: Number(item.fiber) || 0,
       source: 'ai_photo',
       createdAt: new Date().toISOString(),
     });
   };
 
-  const handleSaveCustomOrRecipe = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customName.trim()) return;
+  const logAllAiItems = () => {
+    detectedItems.forEach((item) => logAiItem(item));
+    setLoggedAllDone(true);
+  };
 
+  const editAiItemManually = (item: AiDetectedFood) => {
+    setIsRecipeMode(false);
+    setCustomName(item.name);
+    setCustomGrams(Math.max(1, Math.round(item.grams || 100)));
+    setCustomCal(Math.max(0, Math.round(item.calories || 0)));
+    setCustomPro(Math.max(0, Math.round((item.protein || 0) * 10) / 10));
+    setCustomCarb(Math.max(0, Math.round((item.carbs || 0) * 10) / 10));
+    setCustomFat(Math.max(0, Math.round((item.fat || 0) * 10) / 10));
+    setCustomFib(Math.max(0, Math.round((item.fiber || 0) * 10) / 10));
+    const unitLower = (item.servingUnit || '').toLowerCase();
+    if (unitLower.includes('piece') || unitLower.includes('roti')) setCustomUnit('piece');
+    else if (unitLower.includes('cup')) setCustomUnit('cup');
+    else if (unitLower.includes('plate')) setCustomUnit('plate');
+    else if (unitLower.includes('gram') || unitLower === 'g') setCustomUnit('gram');
+    else setCustomUnit('katori');
+    setActiveTab('custom');
+  };
+
+  const buildCustomFoodFromForm = (): { food: FoodItem; totals: { grams: number; calories: number; protein: number; carbs: number; fat: number; fiber: number } } => {
     let totalGrams = customGrams;
     let totalCal = customCal;
     let totalPro = customPro;
@@ -381,11 +443,54 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         },
       ],
     };
-    onSaveCustomFood(newFood);
-    setSelectedFood(newFood);
+
+    return {
+      food: newFood,
+      totals: {
+        grams: safeG,
+        calories: Math.round(totalCal),
+        protein: Math.round(totalPro * 10) / 10,
+        carbs: Math.round(totalCarb * 10) / 10,
+        fat: Math.round(totalFat * 10) / 10,
+        fiber: Math.round(totalFib * 10) / 10,
+      },
+    };
+  };
+
+  const handleSaveCustomOrRecipe = (e: React.FormEvent, logImmediately = true) => {
+    e.preventDefault();
+    if (!customName.trim()) return;
+    const { food, totals } = buildCustomFoodFromForm();
+    onSaveCustomFood(food);
+
+    if (logImmediately) {
+      onAddLog({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        uid,
+        date: activeDate,
+        mealType,
+        foodId: food.id,
+        foodName: food.name,
+        servingUnit: customUnit,
+        servingQty: 1,
+        grams: totals.grams,
+        calories: totals.calories,
+        protein: totals.protein,
+        carbs: totals.carbs,
+        fat: totals.fat,
+        fiber: totals.fiber,
+        source: 'custom',
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      setSelectedFood(food);
+      setSelectedServingIdx(0);
+      setServingQty(1);
+      setActiveTab('search');
+    }
+
     setCustomName('');
     setRecipeIngredients([]);
-    setActiveTab('search');
   };
 
   const favoriteFoods = allKnownFoods.filter((f) => favoriteIds.includes(f.id));
@@ -393,8 +498,55 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     .map((id) => allKnownFoods.find((f) => f.id === id))
     .filter((x): x is FoodItem => Boolean(x));
 
+  const alphabetSortedSearch = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const byCategory =
+      categoryFilter === 'all'
+        ? searchResults
+        : categoryFilter === 'indian_mains'
+        ? searchResults.filter((f) => f.category === 'bread_rice' || f.category === 'dal_curry')
+        : searchResults.filter((f) => f.category === categoryFilter);
+
+    const base = activeLetter
+      ? byCategory.filter((f) => {
+          const label = (isHi ? f.nameHi : f.name).trim().toLowerCase();
+          return (
+            label.startsWith(activeLetter.toLowerCase()) ||
+            f.name.trim().toLowerCase().startsWith(activeLetter.toLowerCase())
+          );
+        })
+      : byCategory;
+
+    return [...base].sort((a, b) => {
+      const aName = (isHi ? a.nameHi : a.name).trim();
+      const bName = (isHi ? b.nameHi : b.name).trim();
+      if (q) {
+        const aStarts = aName.toLowerCase().startsWith(q) || a.name.toLowerCase().startsWith(q);
+        const bStarts = bName.toLowerCase().startsWith(q) || b.name.toLowerCase().startsWith(q);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
+      }
+      return aName.localeCompare(bName);
+    });
+  }, [searchResults, query, activeLetter, categoryFilter, isHi]);
+
+  const detectedTotals = useMemo(
+    () =>
+      detectedItems.reduce(
+        (acc, it) => ({
+          calories: acc.calories + Math.round(it.calories || 0),
+          protein: Math.round((acc.protein + (it.protein || 0)) * 10) / 10,
+          carbs: Math.round((acc.carbs + (it.carbs || 0)) * 10) / 10,
+          fat: Math.round((acc.fat + (it.fat || 0)) * 10) / 10,
+          fiber: Math.round((acc.fiber + (it.fiber || 0)) * 10) / 10,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
+      ),
+    [detectedItems]
+  );
+
   const listToRender =
-    activeTab === 'favorites' ? favoriteFoods : activeTab === 'recent' ? recentFoods : searchResults;
+    activeTab === 'favorites' ? favoriteFoods : activeTab === 'recent' ? recentFoods : alphabetSortedSearch;
 
   const activeServing = selectedFood?.servings[selectedServingIdx] || selectedFood?.servings[0];
   const activeMacros =
@@ -418,7 +570,6 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
           <button
             type="button"
             onClick={() => {
-              stopCamera();
               onClose();
             }}
             aria-label="Close"
@@ -452,18 +603,17 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         {(
           [
             ['search', t(language, 'logFood'), Search],
+            ['photo', t(language, 'photoAi'), ImageIcon],
+            ['custom', t(language, 'customAndRecipes'), Edit3],
+            ['barcode', t(language, 'barcodeScan'), Barcode],
             ['favorites', t(language, 'favorites'), Heart],
             ['recent', t(language, 'recent'), Utensils],
-            ['barcode', t(language, 'barcodeScan'), Barcode],
-            ['photo', t(language, 'photoAi'), Camera],
-            ['custom', t(language, 'customAndRecipes'), Plus],
           ] as [LoggerTab, string, React.FC<{ className?: string }>][]
         ).map(([tabId, label, Icon]) => (
           <button
             key={tabId}
             type="button"
             onClick={() => {
-              if (tabId !== 'barcode') stopCamera();
               setActiveTab(tabId);
             }}
             className={`min-h-[42px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 border transition-colors ${
@@ -563,16 +713,162 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       {/* Search / Favorites / Recent */}
       {(activeTab === 'search' || activeTab === 'favorites' || activeTab === 'recent') && (
         <div className="space-y-3">
+          {/* Direct Food Photo Upload Shortcut (Request 9) */}
           {activeTab === 'search' && (
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <label className="w-full min-h-[46px] px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-xs font-semibold flex items-center justify-between gap-2 cursor-pointer transition-colors">
+              <span className="flex items-center gap-2">
+                <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>
+                  {isHi
+                    ? 'भोजन की फ़ोटो अपलोड करें (कैलोरी, प्रोटीन, फाइबर और कार्ब्स गिनें)'
+                    : 'Upload Food Photo (Auto-calculate Calories, Protein, Fiber & Carbs)'}
+                </span>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold shrink-0">
+                {isHi ? 'अपलोड' : 'Upload'}
+              </span>
               <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t(language, 'searchFoodPlaceholder')}
-                className="w-full min-h-[46px] pl-10 pr-4 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                type="file"
+                accept="image/*"
+                onChange={(e) => handlePhotoUpload(e, true)}
+                className="hidden"
               />
+            </label>
+          )}
+
+          {activeTab === 'search' && (
+            <div ref={searchDropdownRef} className="relative space-y-2">
+              <div className="relative flex items-center">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={query}
+                  onFocus={() => setDropdownOpen(true)}
+                  onChange={(e) => {
+                    setActiveLetter(null);
+                    setQuery(e.target.value);
+                    setDropdownOpen(true);
+                  }}
+                  placeholder={
+                    isHi
+                      ? 'अक्षर लिखें या ड्रॉपडाउन से चुनें (A–Z)...'
+                      : 'Type letter(s) or open A–Z food dropdown...'
+                  }
+                  className="w-full min-h-[46px] pl-10 pr-12 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  aria-label="Toggle alphabetical food dropdown"
+                  onClick={() => setDropdownOpen((v) => !v)}
+                  className="absolute right-1.5 min-h-[36px] min-w-[36px] rounded-lg hover:bg-slate-200/70 dark:hover:bg-emerald-900/40 flex items-center justify-center text-slate-500"
+                >
+                  <ChevronDown className={`w-4 h-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+
+              {/* Alphabetical A-Z Dropdown List */}
+              {dropdownOpen && (
+                <div className="absolute left-0 right-0 top-[50px] z-30 rounded-2xl bg-white dark:bg-[#111a15] border border-emerald-200 dark:border-emerald-800 shadow-xl overflow-hidden">
+                  <div className="px-3 py-2 bg-stone-50 dark:bg-[#090e0b] border-b border-slate-100 dark:border-emerald-950 flex items-center gap-1 overflow-x-auto no-scrollbar">
+                    <button
+                      type="button"
+                      onClick={() => setActiveLetter(null)}
+                      className={`px-2 py-1 rounded-md text-[11px] font-bold shrink-0 ${
+                        activeLetter === null
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-emerald-950'
+                      }`}
+                    >
+                      A–Z
+                    </button>
+                    {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((ch) => (
+                      <button
+                        key={ch}
+                        type="button"
+                        onClick={() => {
+                          setActiveLetter(ch);
+                          setQuery('');
+                        }}
+                        className={`min-w-[24px] py-1 rounded-md text-[11px] font-mono-num font-bold shrink-0 ${
+                          activeLetter === ch
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-emerald-950'
+                        }`}
+                      >
+                        {ch}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-emerald-950/70">
+                    {alphabetSortedSearch.length === 0 ? (
+                      <div className="p-4 text-xs text-center text-slate-500">
+                        {isHi ? 'इस अक्षर से कोई भोजन नहीं मिला।' : 'No food items match this letter.'}
+                      </div>
+                    ) : (
+                      alphabetSortedSearch.map((food) => {
+                        const srv = food.servings[0];
+                        const macros = computeMacrosForGrams(food, srv.grams);
+                        return (
+                          <button
+                            key={`dd_${food.id}`}
+                            type="button"
+                            onClick={() => {
+                              setSelectedFood(food);
+                              setSelectedServingIdx(0);
+                              setServingQty(1);
+                              setDropdownOpen(false);
+                            }}
+                            className="w-full px-3.5 py-2.5 text-left hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 flex items-center justify-between gap-3 transition-colors"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                {isHi ? food.nameHi : food.name}
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono-num">
+                                {isHi ? srv.labelHi : srv.labelEn} · P {macros.protein}g · C {macros.carbs}g
+                              </div>
+                            </div>
+                            <span className="font-mono-num text-xs font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
+                              {macros.calories} kcal
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'search' && (
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+              {(
+                [
+                  ['all', isHi ? 'सभी' : 'All Foods'],
+                  ['beverage', isHi ? 'चाय व ड्रिंक्स' : 'Drinks & Tea'],
+                  ['sweets', isHi ? 'भारतीय मिठाई' : 'Indian Sweets'],
+                  ['indo_chinese', isHi ? 'इंडो-चाइनीज' : 'Indo-Chinese'],
+                  ['indian_mains', isHi ? 'रोटी, चावल व दाल' : 'Roti, Rice & Dal'],
+                  ['breakfast', isHi ? 'नाश्ता' : 'Breakfast'],
+                  ['snack_street', isHi ? 'चाट व स्नैक्स' : 'Street Snacks'],
+                  ['protein_dairy', isHi ? 'प्रोटीन व डेयरी' : 'Protein & Dairy'],
+                  ['fruit_nut', isHi ? 'फल व मेवे' : 'Fruits & Nuts'],
+                ] as [string, string][]
+              ).map(([catId, label]) => (
+                <button
+                  key={catId}
+                  type="button"
+                  onClick={() => setCategoryFilter(catId)}
+                  className={`min-h-[34px] px-3 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 border transition-colors ${
+                    categoryFilter === catId
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-stone-50 dark:bg-[#090e0b] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-emerald-900/50 hover:border-emerald-400'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           )}
 
@@ -642,39 +938,382 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         </div>
       )}
 
-      {/* Barcode Scanner Tab */}
+      {/* Food Photo Upload Nutrition Calculator Tab */}
+      {activeTab === 'photo' && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  {isHi ? 'फ़ोटो से पोषण व कैलोरी गणना' : 'Food Photo Nutrition Calculator'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {isHi
+                    ? 'भोजन की फ़ोटो अपलोड करें और इमेज के आधार पर कैलोरी, प्रोटीन, फाइबर और कार्ब्स की गणना करें।'
+                    : 'Upload a food photo to automatically calculate calories, protein, fiber, and carbs from the image.'}
+                </p>
+              </div>
+              {photoPreview && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoPreview(null);
+                    setDetectedItems([]);
+                    setDishSummary('');
+                    setPhotoError(null);
+                  }}
+                  className="text-xs font-semibold text-rose-600 flex items-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isHi ? 'हटाएं' : 'Clear Photo'}
+                </button>
+              )}
+            </div>
+
+            <label className="w-full min-h-[84px] p-4 rounded-2xl border-2 border-dashed border-emerald-400/80 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex flex-col items-center justify-center gap-1.5 cursor-pointer text-center transition-colors">
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
+                <Upload className="w-4 h-4" />
+                <span>
+                  {photoPreview
+                    ? isHi
+                      ? 'दूसरी भोजन फ़ोटो अपलोड करें'
+                      : 'Upload Another Food Photo'
+                    : isHi
+                    ? 'भोजन की फ़ोटो चुनें (कैलोरी, प्रोटीन, फाइबर व कार्ब्स गिनें)'
+                    : 'Upload Food Photo (Calculates Calories, Protein, Fiber & Carbs)'}
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                JPG, PNG, WebP · {isHi ? 'तस्वीर से तुरंत पोषण गणना' : 'Instant image nutrition breakdown'}
+              </span>
+              <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, true)} className="hidden" />
+            </label>
+
+            {photoPreview && (
+              <div className="space-y-3">
+                <img
+                  src={photoPreview}
+                  alt="Meal preview"
+                  referrerPolicy="no-referrer"
+                  className="w-full max-h-56 object-cover rounded-2xl border border-slate-200 dark:border-emerald-900/60"
+                />
+                <button
+                  type="button"
+                  disabled={photoLoading}
+                  onClick={() => analyzeFoodWithAi()}
+                  className="w-full min-h-[44px] px-5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {photoLoading
+                    ? isHi
+                      ? 'फ़ोटो से पोषण गिना जा रहा है...'
+                      : 'Calculating from Photo...'
+                    : isHi
+                    ? 'फ़ोटो से कैलोरी व मैक्रोज़ निकालें'
+                    : 'Calculate Calories & Macros from Image'}
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => loadSamplePhotoForAi('/src/assets/images/fitplate_poha_breakfast_1794826256666.jpg')}
+                className="min-h-[36px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-[11px] font-medium"
+              >
+                {isHi ? 'उदाहरण: पोहा बाउल' : 'Sample: Poha Bowl'}
+              </button>
+              <button
+                type="button"
+                onClick={() => loadSamplePhotoForAi('/src/assets/images/fitplate_hero_thali_1794826405362.jpg')}
+                className="min-h-[36px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-[11px] font-medium"
+              >
+                {isHi ? 'उदाहरण: भारतीय थाली' : 'Sample: Indian Thali'}
+              </button>
+            </div>
+
+            {photoError && <p className="text-xs text-rose-600 dark:text-rose-400">{photoError}</p>}
+
+            {/* Detected Food Results */}
+            {detectedItems.length > 0 && (
+              <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-emerald-900/50">
+                {dishSummary && (
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{dishSummary}</p>
+                )}
+
+                <div className="p-3.5 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                      {isHi ? 'फ़ोटो से कुल पोषण गणना' : 'Calculated Nutrition from Image'}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={loggedAllDone}
+                      onClick={logAllAiItems}
+                      className="min-h-[38px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-700/70 text-white text-xs font-semibold flex items-center gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      {loggedAllDone
+                        ? isHi
+                          ? 'सभी जुड़ गए'
+                          : 'All Logged'
+                        : isHi
+                        ? `सभी ${t(language, mealType)} में जोड़ें`
+                        : `Log All to ${t(language, mealType)}`}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
+                      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {isHi ? 'कैलोरी' : 'Calories'}
+                      </div>
+                      <div className="font-mono-num text-sm font-bold text-slate-900 dark:text-white">
+                        {detectedTotals.calories} kcal
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
+                      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {t(language, 'protein')}
+                      </div>
+                      <div className="font-mono-num text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                        {detectedTotals.protein} g
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
+                      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {t(language, 'fiber')}
+                      </div>
+                      <div className="font-mono-num text-sm font-bold text-teal-700 dark:text-teal-400">
+                        {detectedTotals.fiber} g
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
+                      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {t(language, 'carbs')}
+                      </div>
+                      <div className="font-mono-num text-sm font-bold text-sky-700 dark:text-sky-400">
+                        {detectedTotals.carbs} g
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {detectedItems.map((item, idx) => (
+                  <div
+                    key={`${item.name}_${idx}`}
+                    className="p-3 rounded-xl bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold truncate">{item.name}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-num">
+                        {item.servingQty} {item.servingUnit} ({item.grams}g) · {item.calories} kcal ·{' '}
+                        {t(language, 'protein')} {item.protein}g · {t(language, 'fiber')} {item.fiber}g ·{' '}
+                        {t(language, 'carbs')} {item.carbs}g
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => editAiItemManually(item)}
+                        aria-label="Edit food manually"
+                        className="min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        {isHi ? 'बदलें' : 'Edit'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => logAiItem(item)}
+                        className="min-h-[38px] px-3.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold shrink-0"
+                      >
+                        {isHi ? 'जोड़ें' : 'Log'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Manual Food Details & Recipe Builder Tab */}
+      {activeTab === 'custom' && (
+        <form onSubmit={(e) => handleSaveCustomOrRecipe(e, true)} className="space-y-4">
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-stone-100 dark:bg-[#090e0b]">
+            <button
+              type="button"
+              onClick={() => setIsRecipeMode(false)}
+              className={`min-h-[38px] rounded-lg text-xs font-semibold ${
+                !isRecipeMode ? 'bg-white dark:bg-emerald-600 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              {isHi ? 'मैनुअल फ़ूड विवरण' : 'Manual Food Details'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsRecipeMode(true)}
+              className={`min-h-[38px] rounded-lg text-xs font-semibold ${
+                isRecipeMode ? 'bg-white dark:bg-emerald-600 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              {isHi ? 'रेसिपी बिल्डर' : 'Recipe Builder'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                {isHi ? 'भोजन का नाम' : 'Food Name'}
+              </label>
+              <input
+                type="text"
+                required
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder={isRecipeMode ? 'e.g. Homemade Protein Shake' : 'e.g. Mom’s Matar Paneer'}
+                className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  {isHi ? 'डाइट प्रकार' : 'Diet Type'}
+                </label>
+                <select
+                  value={customDiet}
+                  onChange={(e) => setCustomDiet(e.target.value as DietType)}
+                  className="w-full min-h-[44px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-xs font-medium"
+                >
+                  <option value="veg">Veg</option>
+                  <option value="vegan">Vegan</option>
+                  <option value="eggetarian">Eggetarian</option>
+                  <option value="non-veg">Non-Veg</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  {isHi ? 'इकाई' : 'Serving Unit'}
+                </label>
+                <select
+                  value={customUnit}
+                  onChange={(e) => setCustomUnit(e.target.value as typeof customUnit)}
+                  className="w-full min-h-[44px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-xs font-medium"
+                >
+                  <option value="katori">katori</option>
+                  <option value="piece">piece</option>
+                  <option value="cup">cup</option>
+                  <option value="plate">plate</option>
+                  <option value="gram">gram</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {isRecipeMode ? (
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 space-y-3">
+              <div className="text-xs font-semibold">{isHi ? 'सामग्री जोड़ें' : 'Add Ingredients from Database'}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {INDIAN_AND_GLOBAL_FOODS.slice(0, 12).map((ing) => (
+                  <button
+                    key={ing.id}
+                    type="button"
+                    onClick={() =>
+                      setRecipeIngredients((prev) => [...prev, { food: ing, grams: ing.servings[0].grams }])
+                    }
+                    className="min-h-[36px] px-2.5 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-[11px] font-medium"
+                  >
+                    + {isHi ? ing.nameHi : ing.name}
+                  </button>
+                ))}
+              </div>
+              {recipeIngredients.length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-slate-200 dark:border-emerald-900/50">
+                  {recipeIngredients.map((item, idx) => (
+                    <div key={`${item.food.id}_${idx}`} className="flex items-center justify-between text-xs">
+                      <span>
+                        {item.food.name} ({item.grams}g)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setRecipeIngredients((prev) => prev.filter((_, i) => i !== idx))}
+                        className="text-rose-600 font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                  {isHi ? 'कैलोरी और पोषण दर्ज करें' : 'Nutrition for 1 serving'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCustomCal(Math.round(customPro * 4 + customCarb * 4 + customFat * 9))}
+                  className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
+                >
+                  {isHi ? 'मैक्रोज़ से कैलोरी जोड़ें' : 'Auto-calc kcal from macros'}
+                </button>
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+                {[
+                  ['Grams', customGrams, setCustomGrams],
+                  ['Calories', customCal, setCustomCal],
+                  ['Protein (g)', customPro, setCustomPro],
+                  ['Carbs (g)', customCarb, setCustomCarb],
+                  ['Fat (g)', customFat, setCustomFat],
+                  ['Fiber (g)', customFib, setCustomFib],
+                ].map(([lbl, val, setter]) => (
+                  <div key={String(lbl)}>
+                    <label className="block text-[11px] text-slate-500 mb-1">{String(lbl)}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      value={Number(val)}
+                      onChange={(e) => (setter as (n: number) => void)(Number(e.target.value))}
+                      className="w-full min-h-[42px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-xs"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <button
+              type="submit"
+              className="flex-1 min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              {isHi ? `${t(language, mealType)} में तुरंत जोड़ें` : `Log Food to ${t(language, mealType)}`}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handleSaveCustomOrRecipe(e, false)}
+              className="min-h-[46px] px-4 rounded-xl border border-slate-200 dark:border-emerald-900/60 text-xs font-semibold text-slate-700 dark:text-slate-200"
+            >
+              {isHi ? 'सेव करें व मात्रा चुनें' : 'Save & Adjust Qty'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Barcode Lookup Tab (No device camera access) */}
       {activeTab === 'barcode' && (
         <div className="space-y-4">
           <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                {isHi ? 'कैमरा या बारकोड नंबर से खोजें' : 'Scan or Enter Product Barcode'}
+                {isHi ? 'प्रोडक्ट बारकोड नंबर दर्ज करें' : 'Enter Product Barcode Number'}
               </span>
-              {!cameraActive ? (
-                <button
-                  type="button"
-                  onClick={startCamera}
-                  className="min-h-[40px] px-3.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5"
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  {isHi ? 'कैमरा खोलें' : 'Open Camera'}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={stopCamera}
-                  className="min-h-[40px] px-3.5 rounded-xl bg-slate-800 text-white text-xs font-semibold"
-                >
-                  {isHi ? 'बंद करें' : 'Stop Camera'}
-                </button>
-              )}
             </div>
-
-            {cameraActive && (
-              <div className="rounded-2xl overflow-hidden bg-black aspect-video relative">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              </div>
-            )}
 
             <div className="flex gap-2">
               <input
@@ -723,240 +1362,6 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* AI Photo Recognition Tab */}
-      {activeTab === 'photo' && (
-        <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold">{isHi ? 'AI प्लेट पहचान' : 'AI Meal Photo Scanner'}</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {isHi
-                    ? 'थाली या भोजन की तस्वीर अपलोड करें — AI मात्रा और कैलोरी का अनुमान लगाएगा।'
-                    : 'Upload or capture a meal photo to estimate portions and macros automatically.'}
-                </p>
-              </div>
-              <label className="min-h-[44px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-2 cursor-pointer">
-                <Camera className="w-4 h-4" />
-                {isHi ? 'फ़ोटो चुनें' : 'Upload / Capture'}
-                <input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />
-              </label>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  loadSamplePhotoForAi(
-                    '/src/assets/images/fitplate_poha_breakfast_1794826256666.jpg',
-                    'Kanda Poha with peanuts'
-                  )
-                }
-                className="min-h-[38px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-xs font-medium"
-              >
-                {isHi ? 'उदाहरण: पोहा बाउल' : 'Try Sample: Poha Bowl'}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  loadSamplePhotoForAi(
-                    '/src/assets/images/fitplate_hero_thali_1794826405362.jpg',
-                    'Indian thali with 2 rotis, dal, palak paneer'
-                  )
-                }
-                className="min-h-[38px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-xs font-medium"
-              >
-                {isHi ? 'उदाहरण: भारतीय थाली' : 'Try Sample: Indian Thali'}
-              </button>
-            </div>
-
-            {photoPreview && (
-              <div className="space-y-3">
-                <img
-                  src={photoPreview}
-                  alt="Meal preview"
-                  referrerPolicy="no-referrer"
-                  className="w-full max-h-56 object-cover rounded-2xl border border-slate-200 dark:border-emerald-900/60"
-                />
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={photoHint}
-                    onChange={(e) => setPhotoHint(e.target.value)}
-                    placeholder={isHi ? 'वैकल्पिक नोट (जैसे: बिना घी के 2 रोटी)' : 'Optional note (e.g. 2 rotis, less oil)'}
-                    className="flex-1 min-h-[44px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] text-xs"
-                  />
-                  <button
-                    type="button"
-                    disabled={photoLoading}
-                    onClick={analyzeFoodPhoto}
-                    className="min-h-[44px] px-4 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    {photoLoading ? (isHi ? 'जांच जारी...' : 'Analyzing...') : isHi ? 'पहचानें' : 'Analyze Photo'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {photoError && <p className="text-xs text-rose-600 dark:text-rose-400">{photoError}</p>}
-
-            {detectedItems.length > 0 && (
-              <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-emerald-900/50">
-                {dishSummary && <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">{dishSummary}</p>}
-                {detectedItems.map((item, idx) => (
-                  <div
-                    key={`${item.name}_${idx}`}
-                    className="p-3 rounded-xl bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold">{item.name}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-num">
-                        {item.servingQty} {item.servingUnit} ({item.grams}g) · {item.calories} kcal · P {item.protein}g
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => logAiItem(item)}
-                      className="min-h-[40px] px-3.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold shrink-0"
-                    >
-                      {isHi ? 'जोड़ें' : 'Log'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Custom Food & Recipe Builder */}
-      {activeTab === 'custom' && (
-        <form onSubmit={handleSaveCustomOrRecipe} className="space-y-4">
-          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-stone-100 dark:bg-[#090e0b]">
-            <button
-              type="button"
-              onClick={() => setIsRecipeMode(false)}
-              className={`min-h-[38px] rounded-lg text-xs font-semibold ${
-                !isRecipeMode ? 'bg-white dark:bg-emerald-600 shadow-sm' : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              {isHi ? 'कस्टम फूड' : 'Custom Food'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsRecipeMode(true)}
-              className={`min-h-[38px] rounded-lg text-xs font-semibold ${
-                isRecipeMode ? 'bg-white dark:bg-emerald-600 shadow-sm' : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              {isHi ? 'रेसिपी बिल्डर' : 'Recipe Builder'}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <input
-              type="text"
-              required
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-              placeholder={isRecipeMode ? 'e.g. Homemade Protein Shake' : 'e.g. Mom’s Matar Paneer'}
-              className="min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-sm"
-            />
-            <div className="flex gap-2">
-              <select
-                value={customDiet}
-                onChange={(e) => setCustomDiet(e.target.value as DietType)}
-                className="flex-1 min-h-[44px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-xs font-medium"
-              >
-                <option value="veg">Veg</option>
-                <option value="vegan">Vegan</option>
-                <option value="eggetarian">Eggetarian</option>
-                <option value="non-veg">Non-Veg</option>
-              </select>
-              <select
-                value={customUnit}
-                onChange={(e) => setCustomUnit(e.target.value as typeof customUnit)}
-                className="flex-1 min-h-[44px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-xs font-medium"
-              >
-                <option value="katori">katori</option>
-                <option value="piece">piece</option>
-                <option value="cup">cup</option>
-                <option value="plate">plate</option>
-                <option value="gram">gram</option>
-              </select>
-            </div>
-          </div>
-
-          {isRecipeMode ? (
-            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 space-y-3">
-              <div className="text-xs font-semibold">{isHi ? 'सामग्री जोड़ें' : 'Add Ingredients from Database'}</div>
-              <div className="flex flex-wrap gap-1.5">
-                {INDIAN_AND_GLOBAL_FOODS.slice(0, 12).map((ing) => (
-                  <button
-                    key={ing.id}
-                    type="button"
-                    onClick={() =>
-                      setRecipeIngredients((prev) => [...prev, { food: ing, grams: ing.servings[0].grams }])
-                    }
-                    className="min-h-[36px] px-2.5 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-[11px] font-medium"
-                  >
-                    + {isHi ? ing.nameHi : ing.name}
-                  </button>
-                ))}
-              </div>
-              {recipeIngredients.length > 0 && (
-                <div className="space-y-1.5 pt-2 border-t border-slate-200 dark:border-emerald-900/50">
-                  {recipeIngredients.map((item, idx) => (
-                    <div key={`${item.food.id}_${idx}`} className="flex items-center justify-between text-xs">
-                      <span>
-                        {item.food.name} ({item.grams}g)
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setRecipeIngredients((prev) => prev.filter((_, i) => i !== idx))}
-                        className="text-rose-600 font-medium"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
-              {[
-                ['Grams', customGrams, setCustomGrams],
-                ['Calories', customCal, setCustomCal],
-                ['Protein (g)', customPro, setCustomPro],
-                ['Carbs (g)', customCarb, setCustomCarb],
-                ['Fat (g)', customFat, setCustomFat],
-                ['Fiber (g)', customFib, setCustomFib],
-              ].map(([lbl, val, setter]) => (
-                <div key={String(lbl)}>
-                  <label className="block text-[11px] text-slate-500 mb-1">{String(lbl)}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={Number(val)}
-                    onChange={(e) => (setter as (n: number) => void)(Number(e.target.value))}
-                    className="w-full min-h-[42px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-xs"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm"
-          >
-            {isHi ? 'सेव करें और चुनें' : 'Save & Select Food'}
-          </button>
-        </form>
       )}
     </div>
   );

@@ -9,6 +9,7 @@ import type {
   UserProfile,
 } from '../types/fitplate';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
+import { buildLocal5DayWorkoutPlan, buildLocal7DayMealPlan } from '../data/coachPlansCatalog';
 import { t } from '../i18n/translations';
 
 interface CoachViewProps {
@@ -54,11 +55,9 @@ export const CoachView: React.FC<CoachViewProps> = ({
   const [budget, setBudget] = useState<'budget' | 'moderate' | 'flexible'>(mealPlan?.budget || 'budget');
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
   const [mealLoading, setMealLoading] = useState(false);
-  const [mealError, setMealError] = useState<string | null>(null);
 
-  const [workoutMode, setWorkoutMode] = useState<'home' | 'gym'>(workoutPlan?.mode || 'home');
+  const [workoutMode, setWorkoutMode] = useState<'home' | 'gym' | 'both'>(workoutPlan?.mode || 'both');
   const [workoutLoading, setWorkoutLoading] = useState(false);
-  const [workoutError, setWorkoutError] = useState<string | null>(null);
   const [workoutImgError, setWorkoutImgError] = useState(false);
 
   const [chatInput, setChatInput] = useState('');
@@ -66,7 +65,6 @@ export const CoachView: React.FC<CoachViewProps> = ({
 
   const generateMealPlan = async () => {
     setMealLoading(true);
-    setMealError(null);
     try {
       const { ok, data } = await safeFetchJson<CoachMealPlan & { error?: string }>(apiUrl('/api/ai/meal-plan'), {
         method: 'POST',
@@ -78,20 +76,49 @@ export const CoachView: React.FC<CoachViewProps> = ({
             allergies: profile.allergies,
             dailyCalorieTarget: profile.dailyCalorieTarget,
             proteinTargetG: profile.proteinTargetG,
+            carbsTargetG: profile.carbsTargetG,
+            fatTargetG: profile.fatTargetG,
+            fiberTargetG: profile.fiberTargetG,
             goalType: profile.goalType,
             language,
           },
           budget,
         }),
       });
-      if (!ok || !data || !Array.isArray(data.days)) {
-        setMealError(data?.error || (isHi ? 'AI मील प्लान अभी उपलब्ध नहीं है।' : 'Could not generate meal plan right now.'));
-      } else {
+      if (ok && data && Array.isArray(data.days) && data.days.length > 0) {
         onSaveMealPlan(data);
+        setSelectedDayIdx(0);
+      } else {
+        onSaveMealPlan(
+          buildLocal7DayMealPlan({
+            dietType: profile.dietType,
+            budget,
+            dailyCalorieTarget: profile.dailyCalorieTarget,
+            proteinTargetG: profile.proteinTargetG,
+            carbsTargetG: profile.carbsTargetG,
+            fatTargetG: profile.fatTargetG,
+            fiberTargetG: profile.fiberTargetG,
+            allergies: profile.allergies,
+            language,
+          })
+        );
         setSelectedDayIdx(0);
       }
     } catch {
-      setMealError(isHi ? 'नेटवर्क त्रुटि।' : 'Network error generating plan.');
+      onSaveMealPlan(
+        buildLocal7DayMealPlan({
+          dietType: profile.dietType,
+          budget,
+          dailyCalorieTarget: profile.dailyCalorieTarget,
+          proteinTargetG: profile.proteinTargetG,
+          carbsTargetG: profile.carbsTargetG,
+          fatTargetG: profile.fatTargetG,
+          fiberTargetG: profile.fiberTargetG,
+          allergies: profile.allergies,
+          language,
+        })
+      );
+      setSelectedDayIdx(0);
     } finally {
       setMealLoading(false);
     }
@@ -99,7 +126,6 @@ export const CoachView: React.FC<CoachViewProps> = ({
 
   const generateWorkoutPlan = async () => {
     setWorkoutLoading(true);
-    setWorkoutError(null);
     try {
       const { ok, data } = await safeFetchJson<CoachWorkoutPlan & { error?: string }>(
         apiUrl('/api/ai/workout-plan'),
@@ -117,13 +143,25 @@ export const CoachView: React.FC<CoachViewProps> = ({
           }),
         }
       );
-      if (!ok || !data || !Array.isArray(data.days)) {
-        setWorkoutError(data?.error || (isHi ? 'वर्कआउट प्लान अभी उपलब्ध नहीं है।' : 'Could not generate workout plan right now.'));
-      } else {
+      if (ok && data && Array.isArray(data.days) && data.days.length > 0) {
         onSaveWorkoutPlan(data);
+      } else {
+        onSaveWorkoutPlan(
+          buildLocal5DayWorkoutPlan({
+            mode: workoutMode,
+            goalType: profile.goalType,
+            language,
+          })
+        );
       }
     } catch {
-      setWorkoutError(isHi ? 'नेटवर्क त्रुटि।' : 'Network error generating workout.');
+      onSaveWorkoutPlan(
+        buildLocal5DayWorkoutPlan({
+          mode: workoutMode,
+          goalType: profile.goalType,
+          language,
+        })
+      );
     } finally {
       setWorkoutLoading(false);
     }
@@ -186,6 +224,15 @@ export const CoachView: React.FC<CoachViewProps> = ({
   };
 
   const activeDay = mealPlan?.days?.[selectedDayIdx];
+  const dayMacros = activeDay
+    ? {
+        calories: activeDay.meals.reduce((s, m) => s + m.calories, 0) || activeDay.totalCalories,
+        protein: Math.round(activeDay.meals.reduce((s, m) => s + m.protein, 0)) || activeDay.totalProtein || 0,
+        carbs: Math.round(activeDay.meals.reduce((s, m) => s + m.carbs, 0)) || activeDay.totalCarbs || 0,
+        fat: Math.round(activeDay.meals.reduce((s, m) => s + m.fat, 0)) || activeDay.totalFat || 0,
+        fiber: Math.round(activeDay.meals.reduce((s, m) => s + m.fiber, 0)) || activeDay.totalFiber || 0,
+      }
+    : null;
 
   return (
     <div className="space-y-5">
@@ -214,15 +261,16 @@ export const CoachView: React.FC<CoachViewProps> = ({
         ))}
       </div>
 
-      {/* 7-Day Meal Plan Tab */}
+      {/* 7-Day Macro-Targeted Meal Plan Tab */}
       {subTab === 'meal' && (
         <div className="space-y-5">
           <div className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <h2 className="font-display text-lg font-bold">{t(language, 'mealPlan7Day')}</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {profile.dietType.toUpperCase()} · {profile.dailyCalorieTarget} kcal/day · {profile.proteinTargetG}g protein
-                {profile.allergies.length > 0 ? ` · Excludes: ${profile.allergies.join(', ')}` : ''}
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num">
+                {profile.dietType.toUpperCase()} · {profile.dailyCalorieTarget} kcal · P {profile.proteinTargetG}g · C{' '}
+                {profile.carbsTargetG}g · Fib {profile.fiberTargetG}g
+                {profile.allergies.length > 0 ? ` · No ${profile.allergies.join(', ')}` : ''}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -247,12 +295,6 @@ export const CoachView: React.FC<CoachViewProps> = ({
             </div>
           </div>
 
-          {mealError && (
-            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-200">
-              {mealError}
-            </div>
-          )}
-
           {mealPlan && mealPlan.days?.length > 0 ? (
             <div className="space-y-4">
               {/* Day Tabs */}
@@ -273,13 +315,39 @@ export const CoachView: React.FC<CoachViewProps> = ({
                 ))}
               </div>
 
-              {activeDay && (
+              {activeDay && dayMacros && (
                 <div className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-emerald-950">
                     <h3 className="font-display font-bold text-base">{activeDay.day}</h3>
                     <span className="font-mono-num text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
-                      {activeDay.totalCalories} kcal · {activeDay.estimatedCostInr}
+                      {dayMacros.calories} kcal · {activeDay.estimatedCostInr}
                     </span>
+                  </div>
+
+                  {/* Daily Protein / Carbs / Fiber Target Achievement Strip */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {[
+                      [isHi ? 'कैलोरी' : 'Calories', dayMacros.calories, profile.dailyCalorieTarget, 'kcal', 'bg-emerald-600'],
+                      [t(language, 'protein'), dayMacros.protein, profile.proteinTargetG, 'g', 'bg-emerald-500'],
+                      [t(language, 'carbs'), dayMacros.carbs, profile.carbsTargetG, 'g', 'bg-sky-500'],
+                      [t(language, 'fiber'), dayMacros.fiber, profile.fiberTargetG, 'g', 'bg-teal-500'],
+                    ].map(([lbl, actual, tgt, unit, barColor]) => {
+                      const pct = Math.min(100, Math.round((Number(actual) / Math.max(1, Number(tgt))) * 100));
+                      return (
+                        <div key={String(lbl)} className="p-3 rounded-2xl bg-stone-50 dark:bg-[#090e0b] space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-500 dark:text-slate-400 font-medium">{String(lbl)}</span>
+                            <span className="font-mono-num font-bold text-slate-800 dark:text-slate-100">
+                              {actual}/{tgt}
+                              {String(unit)}
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-emerald-950 overflow-hidden">
+                            <div className={`h-full rounded-full ${String(barColor)}`} style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -296,8 +364,8 @@ export const CoachView: React.FC<CoachViewProps> = ({
                           <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{meal.portion}</div>
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/60 dark:border-emerald-950">
-                          <span className="font-mono-num text-xs text-slate-600 dark:text-slate-300">
-                            {meal.calories} kcal · P {meal.protein}g
+                          <span className="font-mono-num text-[11px] text-slate-600 dark:text-slate-300">
+                            {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · Fib {meal.fiber}g
                           </span>
                           <button
                             type="button"
@@ -315,7 +383,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
                                 fiber: meal.fiber,
                               })
                             }
-                            className="min-h-[38px] px-3 rounded-xl bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1"
+                            className="min-h-[38px] px-3 rounded-xl bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1 shrink-0"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             {isHi ? 'लॉग करें' : 'Log'}
@@ -339,12 +407,12 @@ export const CoachView: React.FC<CoachViewProps> = ({
               </div>
               <div className="md:col-span-7 space-y-2">
                 <h3 className="font-display font-bold text-lg">
-                  {isHi ? 'आपका 7-दिन का प्लान तैयार है' : 'Generate Your 7-Day Personalized Menu'}
+                  {isHi ? 'आपका दिन-वार मैक्रो डाइट प्लान' : 'Day-Wise Diet Plan for Protein, Carbs & Fiber'}
                 </h3>
                 <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   {isHi
-                    ? 'अपना बजट चुनें और AI कोच से अपने आहार, एलर्जी और कैलोरी लक्ष्य के अनुसार 7 दिन का भारतीय व संतुलित मील प्लान प्राप्त करें।'
-                    : 'Choose your grocery budget tier and generate a complete 7-day Indian and global menu tailored to your calories, protein, diet preference, and allergies.'}
+                    ? `अपने बजट के अनुसार 7 दिन का भारतीय व संतुलित मील प्लान बनाएं जो रोज़ाना ${profile.proteinTargetG}g प्रोटीन, ${profile.carbsTargetG}g कार्ब्स और ${profile.fiberTargetG}g फाइबर का लक्ष्य पूरा करे।`
+                    : `Generate a complete 7-day day-wise menu calibrated to hit your daily ${profile.proteinTargetG}g protein, ${profile.carbsTargetG}g carbs, and ${profile.fiberTargetG}g fiber targets.`}
                 </p>
               </div>
             </div>
@@ -352,86 +420,123 @@ export const CoachView: React.FC<CoachViewProps> = ({
         </div>
       )}
 
-      {/* Workout Plans Tab */}
+      {/* 5-Day Combined Muscle + Cardio Workout Plans Tab */}
       {subTab === 'workout' && (
         <div className="space-y-5">
-          <div className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <h2 className="font-display text-lg font-bold">{t(language, 'workoutPlans')}</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {profile.goalType.toUpperCase()} · {profile.activityLevel}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex p-1 bg-stone-100 dark:bg-[#090e0b] rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setWorkoutMode('home')}
-                  className={`min-h-[38px] px-3 rounded-lg text-xs font-semibold ${
-                    workoutMode === 'home' ? 'bg-white dark:bg-emerald-600 shadow-sm' : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  {t(language, 'homeWorkout')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWorkoutMode('gym')}
-                  className={`min-h-[38px] px-3 rounded-lg text-xs font-semibold ${
-                    workoutMode === 'gym' ? 'bg-white dark:bg-emerald-600 shadow-sm' : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  {t(language, 'gymWorkout')}
-                </button>
+          <div className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <h2 className="font-display text-lg font-bold">
+                  {isHi ? '5-दिवसीय मसल + कार्डियो वर्कआउट प्लान' : '5-Day Muscle + Cardio Workout Plan'}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {isHi
+                    ? 'जिम, होम या दोनों चुनें — हर दिन मसल ट्रेनिंग और कार्डियो के सेट्स के साथ।'
+                    : 'Choose Gym, Home, or Both — every day combines Strength/Muscle sets and Cardio conditioning.'}
+                </p>
               </div>
               <button
                 type="button"
                 disabled={workoutLoading}
                 onClick={generateWorkoutPlan}
-                className="min-h-[44px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5"
+                className="min-h-[44px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0"
               >
                 <Sparkles className="w-4 h-4" />
-                {workoutLoading ? (isHi ? 'तैयार...' : 'Building...') : t(language, 'generatePlan')}
+                {workoutLoading
+                  ? isHi
+                    ? 'तैयार...'
+                    : 'Building 5-Day Plan...'
+                  : isHi
+                  ? '5-दिन प्लान बनाएं'
+                  : 'Generate 5-Day Plan'}
               </button>
+            </div>
+
+            {/* Mode Selector: Home / Gym / Both */}
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-stone-100 dark:bg-[#090e0b] rounded-xl">
+              {(
+                [
+                  ['gym', t(language, 'gymWorkout')],
+                  ['home', t(language, 'homeWorkout')],
+                  ['both', t(language, 'bothWorkout')],
+                ] as ['gym' | 'home' | 'both', string][]
+              ).map(([mId, mLabel]) => (
+                <button
+                  key={mId}
+                  type="button"
+                  onClick={() => setWorkoutMode(mId)}
+                  className={`min-h-[40px] px-2 rounded-lg text-xs font-semibold transition-colors ${
+                    workoutMode === mId
+                      ? 'bg-white dark:bg-emerald-600 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  {mLabel}
+                </button>
+              ))}
             </div>
           </div>
 
-          {workoutError && (
-            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-200">
-              {workoutError}
-            </div>
-          )}
-
           {workoutPlan && workoutPlan.days?.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {workoutPlan.days.map((day, i) => (
-                <div
-                  key={`${day.day}_${i}`}
-                  className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 space-y-3"
-                >
-                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-emerald-950">
-                    <div>
-                      <h3 className="font-display font-bold text-base">{day.day}</h3>
-                      <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">{day.focus}</p>
-                    </div>
-                    <span className="font-mono-num text-xs text-slate-500">{day.durationMin} min</span>
-                  </div>
-                  <div className="space-y-2.5">
-                    {day.exercises.map((ex, j) => (
-                      <div key={`${ex.name}_${j}`} className="p-3 rounded-xl bg-stone-50 dark:bg-[#090e0b]">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold">{ex.name}</span>
-                          <span className="font-mono-num text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                            {ex.setsReps}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                          Rest {ex.restSec}s · ~{ex.caloriesEstimate} kcal · {ex.note}
-                        </p>
+            <div className="space-y-4">
+              <div className="px-1 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-display font-bold text-base text-slate-900 dark:text-white">{workoutPlan.title}</h3>
+                <span className="text-xs font-mono-num text-emerald-700 dark:text-emerald-400 font-semibold">
+                  {workoutPlan.days.length} {isHi ? 'दिन / सप्ताह' : 'Days / Week'} · {workoutPlan.mode.toUpperCase()}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {workoutPlan.days.map((day, i) => (
+                  <div
+                    key={`${day.day}_${i}`}
+                    className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 space-y-3"
+                  >
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-emerald-950">
+                      <div>
+                        <h3 className="font-display font-bold text-base">{day.day}</h3>
+                        <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">{day.focus}</p>
                       </div>
-                    ))}
+                      <span className="font-mono-num text-xs text-slate-500 shrink-0">{day.durationMin} min</span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {day.exercises.map((ex, j) => {
+                        const isCardio =
+                          ex.exerciseType === 'cardio' ||
+                          /cardio|treadmill|row|cycle|cycling|bike|elliptical|jump|burpee|jog|walk|climber|boxing|surya/i.test(
+                            ex.name
+                          );
+                        return (
+                          <div key={`${ex.name}_${j}`} className="p-3 rounded-xl bg-stone-50 dark:bg-[#090e0b] space-y-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  {isCardio ? (isHi ? 'कार्डियो' : 'Cardio') : isHi ? 'मसल / स्ट्रेंथ' : 'Muscle'}
+                                </div>
+                                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                  {ex.name}
+                                </span>
+                              </div>
+                              <span
+                                className={`font-mono-num text-xs font-bold shrink-0 ${
+                                  isCardio
+                                    ? 'text-amber-600 dark:text-amber-400'
+                                    : 'text-emerald-700 dark:text-emerald-400'
+                                }`}
+                              >
+                                {ex.setsReps}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              Rest {ex.restSec}s · ~{ex.caloriesEstimate} kcal · {ex.note}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : (
             <div className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-6 grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
@@ -452,12 +557,12 @@ export const CoachView: React.FC<CoachViewProps> = ({
               </div>
               <div className="md:col-span-7 space-y-2">
                 <h3 className="font-display font-bold text-lg">
-                  {isHi ? 'होम या जिम वर्कआउट प्लान बनाएं' : 'Simple Home & Gym Training Splits'}
+                  {isHi ? '5-दिन जिम, होम या दोनों प्लान बनाएं' : '5-Day Gym, Home & Combined Splits'}
                 </h3>
                 <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   {isHi
-                    ? 'घर पर बिना उपकरण या जिम में वेट ट्रेनिंग के लिए अपने लक्ष्य के अनुसार 5-दिन का प्लान पाएं।'
-                    : 'Switch between Home (no-equipment) and Gym routines calibrated to your weight loss, maintenance, or muscle gain goal.'}
+                    ? 'ऊपर जिम, होम या दोनों विकल्प चुनें और हर दिन के लिए मसल एक्सरसाइज व कार्डियो सेट्स के साथ 5 दिन का साप्ताहिक प्लान पाएं।'
+                    : 'Select Gym, Home, or Both above to generate a 5-day weekly plan pairing muscle hypertrophy sets with cardio intervals every day.'}
                 </p>
               </div>
             </div>

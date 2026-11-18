@@ -1,6 +1,88 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#059669" />
-  <circle cx="256" cy="256" r="168" fill="none" stroke="#ffffff" stroke-width="24" stroke-opacity="0.28" />
-  <circle cx="256" cy="256" r="168" fill="none" stroke="#ffffff" stroke-width="24" stroke-linecap="round" stroke-dasharray="760 1056" transform="rotate(-90 256 256)" />
-  <text x="256" y="286" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="152" fill="#ffffff" letter-spacing="-4">FK</text>
+  <defs>
+    <linearGradient id="fpBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="55%" stop-color="#047857" />
+      <stop offset="100%" stop-color="#0f766e" />
+    </linearGradient>
+    <linearGradient id="fpRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a7f3d0" />
+      <stop offset="50%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+    <linearGradient id="fpAccent" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#fde68a" />
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded Squircle Background -->
+  <rect width="512" height="512" rx="116" fill="url(#fpBg)" />
+
+  <!-- Subtle Inner Plate Halo -->
+  <circle cx="256" cy="256" r="186" fill="#022c22" fill-opacity="0.16" />
+
+  <!-- Base Track Ring -->
+  <circle
+    cx="256"
+    cy="256"
+    r="156"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="22"
+    stroke-opacity="0.22"
+  />
+
+  <!-- Active Macro/Calorie Progress Arc -->
+  <circle
+    cx="256"
+    cy="256"
+    r="156"
+    fill="none"
+    stroke="url(#fpRing)"
+    stroke-width="24"
+    stroke-linecap="round"
+    stroke-dasharray="735 1000"
+    transform="rotate(-110 256 256)"
+  />
+
+  <!-- Gold Vitality Accent Arc -->
+  <circle
+    cx="256"
+    cy="256"
+    r="156"
+    fill="none"
+    stroke="url(#fpAccent)"
+    stroke-width="20"
+    stroke-linecap="round"
+    stroke-dasharray="115 1000"
+    transform="rotate(175 256 256)"
+  />
+
+  <!-- Center Plate + Leaf + Pulse Silhouette -->
+  <!-- Bowl / Plate Curve -->
+  <path
+    d="M154 274 C154 336, 200 374, 256 374 C312 374, 358 336, 358 274 Z"
+    fill="#ffffff"
+    fill-opacity="0.96"
+  />
+  <!-- Stylized Healthy Leaf Crest Rising from Plate -->
+  <path
+    d="M256 134 C298 158, 326 196, 314 238 C302 254, 276 260, 256 244 C236 260, 210 254, 198 238 C186 196, 214 158, 256 134 Z"
+    fill="#a7f3d0"
+  />
+  <!-- Center Leaf Vein / Vitality Flame -->
+  <path
+    d="M256 154 C272 178, 276 212, 256 240 C236 212, 240 178, 256 154 Z"
+    fill="#ffffff"
+  />
+  <!-- Dynamic Activity Pulse Line Across Plate -->
+  <path
+    d="M174 304 L214 304 L232 276 L254 332 L276 286 L294 304 L338 304"
+    fill="none"
+    stroke="#047857"
+    stroke-width="14"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
 </svg>

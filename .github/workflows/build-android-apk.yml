@@ -48,6 +48,23 @@ jobs:
           fi
           npx cap sync android
 
+      - name: Configure Android safe system bars (prevent Back/Home overlap)
+        run: |
+          python3 - <<'EOF'
+          import pathlib
+          styles_path = pathlib.Path('android/app/src/main/res/values/styles.xml')
+          if styles_path.exists():
+              txt = styles_path.read_text()
+              extra = (
+                  '        <item name="android:fitsSystemWindows">true</item>\n'
+                  '        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\n'
+                  '        <item name="android:navigationBarColor">@android:color/black</item>\n'
+              )
+              if 'fitsSystemWindows' not in txt:
+                  txt = txt.replace('</style>', extra + '    </style>', 1)
+                  styles_path.write_text(txt)
+          EOF
+
       - name: Apply app launcher icons
         run: |
           if [ -f "public/pwa-512x512.png" ]; then

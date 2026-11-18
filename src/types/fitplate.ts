@@ -17,7 +17,7 @@ export interface FoodItem {
   id: string;
   name: string;
   nameHi: string;
-  category: 'bread_rice' | 'dal_curry' | 'breakfast' | 'snack_street' | 'beverage' | 'fruit_nut' | 'protein_dairy' | 'packaged' | 'custom';
+  category: 'bread_rice' | 'dal_curry' | 'breakfast' | 'snack_street' | 'beverage' | 'fruit_nut' | 'protein_dairy' | 'sweets' | 'indo_chinese' | 'packaged' | 'custom';
   dietType: DietType;
   barcode?: string;
   allergens?: string[];
@@ -37,6 +37,7 @@ export interface FoodItem {
 export interface UserProfile {
   uid: string;
   name: string;
+  dateOfBirth?: string; // YYYY-MM-DD
   age: number;
   gender: Gender;
   heightCm: number;
@@ -59,6 +60,7 @@ export interface UserProfile {
   darkMode: boolean;
   healthSyncEnabled: boolean;
   wakeUpTime?: string; // HH:MM (24h), supports day and night shifts
+  authProvider?: 'google' | 'facebook' | 'local';
   encryptionEnabled?: boolean;
   under18Acknowledged?: boolean;
   reminders?: RemindersConfig;
@@ -135,6 +137,10 @@ export interface CoachDayMeal {
 export interface CoachDayPlan {
   day: string;
   totalCalories: number;
+  totalProtein?: number;
+  totalCarbs?: number;
+  totalFat?: number;
+  totalFiber?: number;
   estimatedCostInr: string;
   meals: CoachDayMeal[];
 }
@@ -151,6 +157,7 @@ export interface CoachMealPlan {
 
 export interface CoachWorkoutExercise {
   name: string;
+  exerciseType?: 'muscle' | 'cardio';
   setsReps: string;
   restSec: number;
   caloriesEstimate: number;
@@ -167,7 +174,7 @@ export interface CoachWorkoutDay {
 export interface CoachWorkoutPlan {
   id: string;
   title: string;
-  mode: 'home' | 'gym';
+  mode: 'home' | 'gym' | 'both';
   goalType: GoalType;
   days: CoachWorkoutDay[];
   createdAt: string;
@@ -217,3 +224,12 @@ export interface DailyScheduleState {
   updatedAt: string;
 }
 
+export interface DailyMealAnalysis {
+  nutritionScore: number;
+  gradeLabel: string;
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  nextStepAdvice: string;
+  analyzedAt: string;
+}

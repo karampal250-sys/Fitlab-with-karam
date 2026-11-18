@@ -52,6 +52,10 @@ export async function syncProfileToCloud(profile: UserProfile): Promise<void> {
       darkMode: Boolean(profile.darkMode),
       healthSyncEnabled: Boolean(profile.healthSyncEnabled),
       wakeUpTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(profile.wakeUpTime || '') ? profile.wakeUpTime : '07:00',
+      ...(profile.dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(profile.dateOfBirth)
+        ? { dateOfBirth: profile.dateOfBirth }
+        : {}),
+      ...(profile.authProvider ? { authProvider: profile.authProvider } : {}),
       updatedAt: serverTimestamp(),
     };
 
@@ -124,6 +128,8 @@ export async function fetchUserCloudBundle(uid: string): Promise<{
       darkMode: Boolean(d.darkMode),
       healthSyncEnabled: Boolean(d.healthSyncEnabled),
       wakeUpTime: typeof d.wakeUpTime === 'string' ? d.wakeUpTime : '07:00',
+      ...(typeof d.dateOfBirth === 'string' ? { dateOfBirth: d.dateOfBirth } : {}),
+      ...(d.authProvider ? { authProvider: d.authProvider } : {}),
     };
 
     const [logsSnap, metricsSnap, customSnap, favSnap, progSnap, plansSnap, actSnap, schedSnap] = await Promise.all([

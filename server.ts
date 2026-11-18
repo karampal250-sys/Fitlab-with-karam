@@ -4,7 +4,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { INDIAN_AND_GLOBAL_FOODS } from './src/data/indianFoods.ts';
 import type { FoodItem } from './src/types/fitplate.ts';
 
@@ -79,7 +79,7 @@ function mapOffProductToFoodItem(p: Record<string, unknown>): FoodItem | null {
 async function startServer() {
   const app = express();
   const httpServer = http.createServer(app);
-  app.use(express.json({ limit: '12mb' }));
+  app.use(express.json({ limit: '25mb' }));
   app.use((req, res, next) => {
     if (req.path === '/manifest.webmanifest' || req.path === '/sw.js' || req.path.startsWith('/api/')) {
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -134,7 +134,7 @@ async function startServer() {
     }
 
     res.json({
-      items: [...localMatches, ...remoteMatches].slice(0, 30),
+      items: [...localMatches, ...remoteMatches].slice(0, 60),
       source: remoteMatches.length > 0 ? 'hybrid' : 'local',
     });
   });
@@ -180,7 +180,7 @@ async function startServer() {
     }
   });
 
-  // AI Photo Food Recognition
+  // AI Food Photo Nutrition Recognition (Calories, Protein, Carbs, Fat, Fiber from uploaded image)
   app.post('/api/ai/recognize-food', async (req, res) => {
     const ai = getGenAiClient();
     if (!ai) {
@@ -188,39 +188,45 @@ async function startServer() {
       return;
     }
 
-    const { imageBase64, mimeType, hint, language } = req.body as {
+    const { imageBase64, mimeType, imageMimeType, language } = req.body as {
       imageBase64?: string;
       mimeType?: string;
-      hint?: string;
+      imageMimeType?: string;
       language?: 'en' | 'hi';
     };
 
     if (!imageBase64) {
-      res.status(400).json({ error: 'Image data is required.' });
+      res.status(400).json({ error: 'Please upload a food photo first.' });
       return;
     }
 
+    const normalizeImageMime = (raw?: string): string => {
+      const base = (raw || 'image/jpeg').split(';')[0].trim().toLowerCase();
+      if (base === 'image/png' || base === 'image/webp' || base === 'image/heic' || base === 'image/heif') {
+        return base;
+      }
+      return 'image/jpeg';
+    };
+
     try {
-      const cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+      const cleanImg = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+      const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [
+        {
+          inlineData: {
+            mimeType: normalizeImageMime(imageMimeType || mimeType),
+            data: cleanImg,
+          },
+        },
+        {
+          text: `Analyze the uploaded food photo carefully and identify all visible food items.
+Calculate realistic Indian/household portion sizes (katori, piece, cup, gram, plate, glass, tbsp) and accurate nutrition (calories, protein, carbs, fat, fiber) for every item.
+Respond in ${language === 'hi' ? 'Hindi (with clear food names)' : 'English'}.`,
+        },
+      ];
+
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: mimeType || 'image/jpeg',
-                data: cleanBase64,
-              },
-            },
-            {
-              text: `Identify all visible food items in this meal photo (Indian or global dishes). ${
-                hint ? `User note: ${hint}. ` : ''
-              }Estimate realistic portion sizes using Indian/household units (katori, piece, cup, gram, plate) and nutrition (calories, protein, carbs, fat, fiber). Respond in ${
-                language === 'hi' ? 'Hindi (with English food names if clearer)' : 'English'
-              }.`,
-            },
-          ],
-        },
+        contents: { parts },
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -259,7 +265,7 @@ async function startServer() {
     }
   });
 
-  // AI 7-Day Personalized Meal Plan
+  // AI 7-Day Personalized Meal Plan (hitting Protein, Carbs & Fiber targets)
   app.post('/api/ai/meal-plan', async (req, res) => {
     const ai = getGenAiClient();
     if (!ai) {
@@ -274,27 +280,36 @@ async function startServer() {
         allergies: string[];
         dailyCalorieTarget: number;
         proteinTargetG: number;
+        carbsTargetG?: number;
+        fatTargetG?: number;
+        fiberTargetG?: number;
         goalType: string;
         language: 'en' | 'hi';
       };
       budget: 'budget' | 'moderate' | 'flexible';
     };
 
+    const carbsTarget = profile.carbsTargetG || Math.round((profile.dailyCalorieTarget * 0.48) / 4);
+    const fiberTarget = profile.fiberTargetG || Math.round((profile.dailyCalorieTarget / 1000) * 14);
+
     try {
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
-        contents: `Create a realistic, balanced 7-day Indian & global meal plan for ${profile.name}.
+        contents: `Create a realistic, balanced 7-day day-wise Indian & global meal plan for ${profile.name}.
 Goal: ${profile.goalType} weight.
-Daily Calorie Target: ${profile.dailyCalorieTarget} kcal (never recommend extreme crash diets).
-Protein Target: ${profile.proteinTargetG}g/day.
+Daily Targets to meet EVERY DAY:
+- Calories: ~${profile.dailyCalorieTarget} kcal
+- Protein: ~${profile.proteinTargetG}g/day
+- Carbs: ~${carbsTarget}g/day
+- Fiber: ~${fiberTarget}g/day
 Diet Type: ${profile.dietType} (strictly respect this!).
 Allergies to strictly exclude: ${profile.allergies?.length ? profile.allergies.join(', ') : 'None'}.
 Budget Tier: ${budget} (Indian household groceries, practical prep).
 Language: ${profile.language === 'hi' ? 'Hindi (Devanagari script for meal titles and tips)' : 'English'}.
-Each day must have 4 meals: breakfast, lunch, snacks, dinner whose calories sum close to ${profile.dailyCalorieTarget} kcal.`,
+Each day (Monday to Sunday) must have 4 meals (breakfast, lunch, snacks, dinner) whose calories, protein, carbs, and fiber sum closely to the daily targets.`,
         config: {
           systemInstruction:
-            'You are an evidence-based nutrition planner. Prioritize whole foods, Indian home staples (roti, dal, paneer, poha, sprouts, curd, rice, sabzi) alongside global options matching the user dietType and allergies. Never suggest unsafe starvation diets.',
+            'You are an evidence-based nutrition planner. Prioritize whole foods, high-protein and high-fiber Indian home staples (roti, dal, sprouts, paneer/tofu, curd, oats, vegetables, fruits, seeds) matching the user dietType and allergies. Always compute accurate day totals.',
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -308,6 +323,10 @@ Each day must have 4 meals: breakfast, lunch, snacks, dinner whose calories sum 
                   properties: {
                     day: { type: Type.STRING },
                     totalCalories: { type: Type.INTEGER },
+                    totalProtein: { type: Type.INTEGER },
+                    totalCarbs: { type: Type.INTEGER },
+                    totalFat: { type: Type.INTEGER },
+                    totalFiber: { type: Type.INTEGER },
                     estimatedCostInr: { type: Type.STRING },
                     meals: {
                       type: Type.ARRAY,
@@ -327,7 +346,7 @@ Each day must have 4 meals: breakfast, lunch, snacks, dinner whose calories sum 
                       },
                     },
                   },
-                  required: ['day', 'totalCalories', 'estimatedCostInr', 'meals'],
+                  required: ['day', 'totalCalories', 'totalProtein', 'totalCarbs', 'totalFat', 'totalFiber', 'estimatedCostInr', 'meals'],
                 },
               },
             },
@@ -349,7 +368,7 @@ Each day must have 4 meals: breakfast, lunch, snacks, dinner whose calories sum 
     }
   });
 
-  // AI Workout Plan (Home / Gym)
+  // AI Workout Plan (5-Day Gym / Home / Both combining Muscle + Cardio with sets)
   app.post('/api/ai/workout-plan', async (req, res) => {
     const ai = getGenAiClient();
     if (!ai) {
@@ -364,17 +383,25 @@ Each day must have 4 meals: breakfast, lunch, snacks, dinner whose calories sum 
         age: number;
         language: 'en' | 'hi';
       };
-      mode: 'home' | 'gym';
+      mode: 'home' | 'gym' | 'both';
     };
+
+    const modeDesc =
+      mode === 'gym'
+        ? 'GYM equipment workouts'
+        : mode === 'home'
+        ? 'HOME bodyweight/minimal-equipment workouts'
+        : 'BOTH GYM and HOME workouts (e.g., 3 gym days + 2 home days)';
 
     try {
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
-        contents: `Generate a clear, beginner-friendly 5-day ${mode.toUpperCase()} workout split for a ${
-          profile.age
-        }-year-old whose goal is to ${profile.goalType} weight (current activity: ${profile.activityLevel}).
-Language: ${profile.language === 'hi' ? 'Hindi' : 'English'}.
-Include warm-up/form cues and realistic calorie burn estimates per exercise.`,
+        contents: `Generate an exact 5-day weekly ${modeDesc} plan for a ${profile.age}-year-old whose goal is to ${profile.goalType} weight (current activity: ${profile.activityLevel}).
+Requirements:
+- Exactly 5 workout days (Day 1 to Day 5).
+- EVERY day MUST combine BOTH muscle/strength exercises (exerciseType: "muscle") AND cardio exercises (exerciseType: "cardio").
+- Clearly state number of sets and reps or duration in "setsReps" for every single exercise (e.g., "4 sets × 10-12 reps" or "4 sets × 3 min intervals").
+- Language: ${profile.language === 'hi' ? 'Hindi' : 'English'}.`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -395,12 +422,13 @@ Include warm-up/form cues and realistic calorie burn estimates per exercise.`,
                         type: Type.OBJECT,
                         properties: {
                           name: { type: Type.STRING },
+                          exerciseType: { type: Type.STRING },
                           setsReps: { type: Type.STRING },
                           restSec: { type: Type.INTEGER },
                           caloriesEstimate: { type: Type.INTEGER },
                           note: { type: Type.STRING },
                         },
-                        required: ['name', 'setsReps', 'restSec', 'caloriesEstimate', 'note'],
+                        required: ['name', 'exerciseType', 'setsReps', 'restSec', 'caloriesEstimate', 'note'],
                       },
                     },
                   },
@@ -479,6 +507,111 @@ Language: ${language === 'hi' ? 'Hindi' : 'English'}.`,
       res.json(parsed);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get suggestion.' });
+    }
+  });
+
+  // AI Daily Meal Analysis & Nutrition Score
+  app.post('/api/ai/meal-analysis', async (req, res) => {
+    const ai = getGenAiClient();
+    if (!ai) {
+      res.status(500).json({ error: 'Gemini API key is not configured on the server. Check Settings > Secrets.' });
+      return;
+    }
+
+    const { activeDate, meals, totals, targets, goalType, dietType, language } = req.body as {
+      activeDate?: string;
+      meals?: Array<{
+        mealType: string;
+        foodName: string;
+        servingQty?: number;
+        servingUnit?: string;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        fiber: number;
+      }>;
+      totals?: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+      targets?: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+      goalType?: string;
+      dietType?: string;
+      language?: 'en' | 'hi';
+    };
+
+    if (!Array.isArray(meals) || meals.length === 0) {
+      res.status(400).json({ error: 'Please log at least one food item before running AI meal analysis.' });
+      return;
+    }
+
+    const mealLines = meals
+      .slice(0, 40)
+      .map(
+        (m) =>
+          `- [${m.mealType}] ${m.foodName}${m.servingQty ? ` (${m.servingQty} ${m.servingUnit || 'serving'})` : ''}: ${m.calories} kcal, P ${m.protein}g, C ${m.carbs}g, F ${m.fat}g, Fiber ${m.fiber}g`
+      )
+      .join('\n');
+
+    const safeTotals = totals || { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+    const safeTargets = targets || { calories: 2000, protein: 90, carbs: 220, fat: 65, fiber: 28 };
+
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: `Evaluate the user's daily nutrition intake for ${activeDate || 'today'}.
+User Goal: ${goalType || 'maintain'} weight. Diet preference: ${dietType || 'veg'}.
+Daily Totals Logged:
+- Calories: ${safeTotals.calories} / ${safeTargets.calories} kcal
+- Protein: ${safeTotals.protein} / ${safeTargets.protein} g
+- Carbs: ${safeTotals.carbs} / ${safeTargets.carbs} g
+- Fat: ${safeTotals.fat} / ${safeTargets.fat} g
+- Fiber: ${safeTotals.fiber} / ${safeTargets.fiber} g
+
+Logged Meals (${meals.length} items):
+${mealLines}
+
+Provide an honest, evidence-based daily Nutrition Score (0 to 100 integer) reflecting calorie alignment, protein sufficiency, fiber density, and macro balance, plus practical strengths, macro gaps, and one actionable next step tailored to their ${dietType || 'veg'} diet.
+Respond in ${language === 'hi' ? 'Hindi (Devanagari script)' : 'English'}.`,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction:
+            'You are a practical clinical sports nutritionist. Score strictly from 0 to 100 based on how well the logged food macros align with the user targets. Keep summary concise (2 sentences), strengths and gaps 1-3 crisp bullets each, and nextStepAdvice to 1 concrete food/meal tweak.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              nutritionScore: { type: Type.INTEGER },
+              gradeLabel: { type: Type.STRING },
+              summary: { type: Type.STRING },
+              strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+              gaps: { type: Type.ARRAY, items: { type: Type.STRING } },
+              nextStepAdvice: { type: Type.STRING },
+            },
+            required: ['nutritionScore', 'gradeLabel', 'summary', 'strengths', 'gaps', 'nextStepAdvice'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse((response.text ?? '{}').trim()) as {
+        nutritionScore?: number;
+        gradeLabel?: string;
+        summary?: string;
+        strengths?: string[];
+        gaps?: string[];
+        nextStepAdvice?: string;
+      };
+
+      const clampedScore = Math.max(0, Math.min(100, Math.round(Number(parsed.nutritionScore ?? 0))));
+      res.json({
+        nutritionScore: clampedScore,
+        gradeLabel: parsed.gradeLabel || '',
+        summary: parsed.summary || '',
+        strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 4) : [],
+        gaps: Array.isArray(parsed.gaps) ? parsed.gaps.slice(0, 4) : [],
+        nextStepAdvice: parsed.nextStepAdvice || '',
+        analyzedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to analyze daily meals.' });
     }
   });
 
