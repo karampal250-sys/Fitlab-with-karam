@@ -86,8 +86,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               {profile.name} · {profile.age} {isHi ? 'वर्ष' : 'yrs'}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num mt-0.5">
-              {profile.dailyCalorieTarget} kcal/day · TDEE {profile.tdee} · BMI {profile.bmi} · {profile.currentWeightKg} →{' '}
-              {profile.targetWeightKg} kg
+              {profile.dailyCalorieTarget} kcal/day · TDEE {profile.tdee} · BMI {profile.bmi} · {Number(Number(profile.heightCm).toFixed(2))} cm ·{' '}
+              {profile.currentWeightKg} → {profile.targetWeightKg} kg
               {profile.wakeUpTime ? ` · Wake ${profile.wakeUpTime}` : ''}
               {profile.dateOfBirth ? ` · DOB ${profile.dateOfBirth}` : ''}
             </p>

@@ -543,8 +543,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <h2 className="font-display font-bold text-base text-slate-900 dark:text-white">
                   {t(language, 'bmiStatus')} · <span className="font-mono-num">{safeBmi.toFixed(1)}</span>
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {profile.heightCm} cm · {profile.currentWeightKg} kg
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num">
+                  {Number(Number(profile.heightCm).toFixed(2))} cm · {Number(Number(profile.currentWeightKg).toFixed(1))} kg
                 </p>
               </div>
               <span className={`text-xs font-bold ${bmiStatus.tone}`}>{bmiStatus.label}</span>

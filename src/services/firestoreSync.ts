@@ -32,7 +32,7 @@ export async function syncProfileToCloud(profile: UserProfile): Promise<void> {
       name: profile.name.slice(0, 80),
       age: Math.round(profile.age),
       gender: profile.gender,
-      heightCm: Number(profile.heightCm),
+      heightCm: Math.round(Number(profile.heightCm) * 100) / 100,
       currentWeightKg: Number(profile.currentWeightKg),
       targetWeightKg: Number(profile.targetWeightKg),
       activityLevel: profile.activityLevel,

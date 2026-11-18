@@ -63,7 +63,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     initialProfile?.dateOfBirth || socialPrefill?.dateOfBirth || ''
   );
   const [gender, setGender] = useState<Gender>(initialProfile?.gender || 'male');
-  const [heightCm, setHeightCm] = useState<number>(initialProfile?.heightCm || 170);
+  const [heightUnit, setHeightUnit] = useState<'cm' | 'ft'>('cm');
+  const [heightInput, setHeightInput] = useState<string>(
+    initialProfile?.heightCm ? String(Math.round(initialProfile.heightCm * 100) / 100) : '170'
+  );
   const [currentWeightKg, setCurrentWeightKg] = useState<string>(
     initialProfile?.currentWeightKg ? String(initialProfile.currentWeightKg) : ''
   );
@@ -93,23 +96,45 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     return initialProfile?.age || null;
   }, [dateOfBirth, initialProfile?.age]);
 
+  const parsedHeightRaw = parseFloat(heightInput);
+  const numericHeightCm = useMemo(() => {
+    if (!heightInput.trim() || !Number.isFinite(parsedHeightRaw)) return NaN;
+    const cmVal = heightUnit === 'cm' ? parsedHeightRaw : parsedHeightRaw * 30.48;
+    return Math.round(cmVal * 100) / 100;
+  }, [heightInput, heightUnit, parsedHeightRaw]);
+
+  const previewHeightCm = Number.isFinite(numericHeightCm) ? numericHeightCm : 170;
   const numericCurrentWeight = Number(currentWeightKg) || 70;
   const numericTargetWeight = Number(targetWeightKg) || numericCurrentWeight;
   const effectiveAge = computedAge ?? 25;
+
+  const handleSwitchHeightUnit = (nextUnit: 'cm' | 'ft') => {
+    if (nextUnit === heightUnit) return;
+    if (heightInput.trim() && Number.isFinite(parsedHeightRaw)) {
+      if (nextUnit === 'ft') {
+        const ftVal = Math.round((parsedHeightRaw / 30.48) * 100) / 100;
+        setHeightInput(String(ftVal));
+      } else {
+        const cmVal = Math.round(parsedHeightRaw * 30.48 * 10) / 10;
+        setHeightInput(String(cmVal));
+      }
+    }
+    setHeightUnit(nextUnit);
+  };
 
   const calc = useMemo(
     () =>
       calculateNutritionPlan({
         age: Math.max(13, Math.min(120, effectiveAge)),
         gender,
-        heightCm: Math.max(90, Math.min(250, Number(heightCm) || 170)),
+        heightCm: Math.max(90, Math.min(250, previewHeightCm)),
         currentWeightKg: Math.max(25, Math.min(350, numericCurrentWeight)),
         targetWeightKg: Math.max(25, Math.min(350, numericTargetWeight)),
         activityLevel,
         dietType,
         timelineWeeks: Math.max(1, Math.min(260, Number(timelineWeeks) || 12)),
       }),
-    [effectiveAge, gender, heightCm, numericCurrentWeight, numericTargetWeight, activityLevel, dietType, timelineWeeks]
+    [effectiveAge, gender, previewHeightCm, numericCurrentWeight, numericTargetWeight, activityLevel, dietType, timelineWeeks]
   );
 
   const toggleAllergy = (item: string) => {
@@ -130,7 +155,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     ...(dateOfBirth ? { dateOfBirth } : {}),
     age: Math.max(13, Math.min(120, Math.round(effectiveAge))),
     gender,
-    heightCm: Number(heightCm) || 170,
+    heightCm: Math.round(Math.max(90, Math.min(250, previewHeightCm)) * 100) / 100,
     currentWeightKg: numericCurrentWeight,
     targetWeightKg: numericTargetWeight,
     activityLevel,
@@ -175,6 +200,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         isHi
           ? 'कृपया अपनी सही जन्मतिथि (Date of Birth) चुनें (न्यूनतम 13 वर्ष)।'
           : 'Please enter a valid Date of Birth (minimum age 13 years).'
+      );
+      return;
+    }
+    if (!Number.isFinite(numericHeightCm) || numericHeightCm < 90 || numericHeightCm > 250) {
+      setFormError(
+        isHi
+          ? 'कृपया सही लंबाई दर्ज करें (90–250 cm या 3–8.2 ft, दशमलव मान्य है)।'
+          : 'Please enter a valid height (90–250 cm or 3–8.2 ft; decimals allowed).'
       );
       return;
     }
@@ -441,17 +474,52 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                {isHi ? 'लंबाई (cm)' : 'Height (cm)'}
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  {heightUnit === 'cm'
+                    ? isHi
+                      ? 'लंबाई (cm) *'
+                      : 'Height (cm) *'
+                    : isHi
+                    ? 'लंबाई (ft) *'
+                    : 'Height (ft) *'}
+                </label>
+                <div className="inline-flex p-0.5 rounded-lg bg-stone-100 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/50">
+                  {(['cm', 'ft'] as const).map((unit) => (
+                    <button
+                      key={unit}
+                      type="button"
+                      onClick={() => handleSwitchHeightUnit(unit)}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors ${
+                        heightUnit === unit
+                          ? 'bg-white dark:bg-emerald-600 text-slate-900 dark:text-white shadow-2xs'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
+                      }`}
+                    >
+                      {unit}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <input
                 type="number"
-                min={100}
-                max={240}
-                value={heightCm}
-                onChange={(e) => setHeightCm(Number(e.target.value))}
+                required
+                inputMode="decimal"
+                step="any"
+                min={heightUnit === 'cm' ? 90 : 3}
+                max={heightUnit === 'cm' ? 250 : 8.2}
+                placeholder={heightUnit === 'cm' ? 'e.g. 172.5' : 'e.g. 5.8'}
+                value={heightInput}
+                onChange={(e) => setHeightInput(e.target.value)}
                 className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
+              {Number.isFinite(numericHeightCm) && numericHeightCm >= 90 && numericHeightCm <= 250 && (
+                <p className="mt-1 text-[11px] font-mono-num text-slate-500 dark:text-slate-400">
+                  {heightUnit === 'cm'
+                    ? `≈ ${(numericHeightCm / 30.48).toFixed(2)} ft`
+                    : `= ${Number(numericHeightCm.toFixed(1))} cm`}
+                </p>
+              )}
             </div>
 
             <div>

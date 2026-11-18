@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Camera, CheckCircle2, Plus, Scale, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Language, ProgressEntry, UserProfile } from '../types/fitplate';
 import { evaluateWeeklyProgress } from '../utils/nutritionMath';
 import { t } from '../i18n/translations';
+import { WeeklyWeightChart } from './WeeklyWeightChart';
 
 interface ProgressViewProps {
   profile: UserProfile;
@@ -31,6 +32,7 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
   const [armsCm, setArmsCm] = useState<string>('');
   const [note, setNote] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState<string | undefined>(undefined);
+  const weightInputRef = useRef<HTMLInputElement | null>(null);
 
   const report = useMemo(
     () =>
@@ -89,28 +91,10 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
     setPhotoDataUrl(undefined);
   };
 
-  // SVG Chart math
-  const chartPoints = useMemo(() => {
-    if (sorted.length === 0) return [];
-    const weights = sorted.map((e) => e.weightKg).concat([profile.targetWeightKg]);
-    const minW = Math.floor(Math.min(...weights) - 1.5);
-    const maxW = Math.ceil(Math.max(...weights) + 1.5);
-    const span = Math.max(2, maxW - minW);
-    return sorted.map((e, idx) => {
-      const x = sorted.length === 1 ? 160 : 28 + (idx / (sorted.length - 1)) * 284;
-      const y = 136 - ((e.weightKg - minW) / span) * 112;
-      return { x, y, entry: e, minW, maxW };
-    });
-  }, [sorted, profile.targetWeightKg]);
-
-  const targetY = useMemo(() => {
-    if (chartPoints.length === 0) return 80;
-    const { minW, maxW } = chartPoints[0];
-    const span = Math.max(2, maxW - minW);
-    return 136 - ((profile.targetWeightKg - minW) / span) * 112;
-  }, [chartPoints, profile.targetWeightKg]);
-
-  const polyline = chartPoints.map((p) => `${p.x},${p.y}`).join(' ');
+  const handleFocusLogForm = () => {
+    weightInputRef.current?.focus();
+    weightInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -196,71 +180,14 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
             )}
         </section>
 
-        {/* Weight Graph Card */}
-        <section className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-display font-semibold text-base">{isHi ? 'वज़न ग्राफ़' : 'Weight Trend'}</h3>
-            <span className="text-xs font-mono-num text-slate-500">
-              {isHi ? 'लक्ष्य रेखा:' : 'Target:'} {profile.targetWeightKg} kg
-            </span>
-          </div>
-
-          {chartPoints.length > 0 ? (
-            <svg viewBox="0 0 340 164" className="w-full h-48 overflow-visible">
-              {/* Target dashed line */}
-              <line
-                x1="20"
-                y1={targetY}
-                x2="320"
-                y2={targetY}
-                strokeDasharray="4 4"
-                className="stroke-emerald-500/60"
-                strokeWidth="1.5"
-              />
-              {chartPoints.length > 1 && (
-                <polyline
-                  fill="none"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  points={polyline}
-                  className="stroke-emerald-600 dark:stroke-emerald-400"
-                />
-              )}
-              {chartPoints.map((pt) => (
-                <g key={pt.entry.id}>
-                  <circle
-                    cx={pt.x}
-                    cy={pt.y}
-                    r="5"
-                    className="fill-white dark:fill-[#111a15] stroke-emerald-600 dark:stroke-emerald-400"
-                    strokeWidth="2.5"
-                  />
-                  <text
-                    x={pt.x}
-                    y={pt.y - 10}
-                    textAnchor="middle"
-                    className="fill-slate-700 dark:fill-slate-300 text-[10px] font-mono-num font-semibold"
-                  >
-                    {pt.entry.weightKg}
-                  </text>
-                  <text
-                    x={pt.x}
-                    y={156}
-                    textAnchor="middle"
-                    className="fill-slate-400 text-[9px] font-mono-num"
-                  >
-                    {pt.entry.date.slice(5)}
-                  </text>
-                </g>
-              ))}
-            </svg>
-          ) : (
-            <div className="py-10 text-center text-sm text-slate-500">
-              {isHi ? 'पहला वज़न दर्ज करें।' : 'Log your first weigh-in to plot your trend.'}
-            </div>
-          )}
-        </section>
+        {/* Weekly Weight Trend Chart */}
+        <WeeklyWeightChart
+          entries={entries}
+          targetWeightKg={profile.targetWeightKg}
+          goalType={profile.goalType}
+          language={language}
+          onFocusLogForm={handleFocusLogForm}
+        />
 
         {/* History & Photos */}
         <section className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 space-y-3">
@@ -324,6 +251,7 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
               {isHi ? 'वज़न (kg)' : 'Weight (kg)'}
             </label>
             <input
+              ref={weightInputRef}
               type="number"
               step="0.1"
               min="25"
