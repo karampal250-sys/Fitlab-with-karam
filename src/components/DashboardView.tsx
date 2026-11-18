@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Bell,
@@ -24,6 +24,7 @@ import { CalorieHeroRing, SmallMacroRing, WaterProgressRing } from './MacroRings
 import { DailyScheduleCard } from './DailyScheduleCard';
 import { ActivityBurnTracker } from './ActivityBurnTracker';
 import { MealAnalysisSummaryCard } from './MealAnalysisSummaryCard';
+import { ConfettiOverlay, type CelebrationKind } from './ConfettiOverlay';
 import { deriveMealTimesFromWakeUp } from '../data/activitiesCatalog';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
@@ -139,6 +140,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [ideaLoading, setIdeaLoading] = useState(false);
   const [showExercisePicker, setShowExercisePicker] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
+  const [celebration, setCelebration] = useState<{ id: number; kind: CelebrationKind } | null>(null);
+
+  const calorieGoalMet = profile.dailyCalorieTarget > 0 && totals.calories >= profile.dailyCalorieTarget;
+  const waterGoalMet = metrics.waterGoalMl > 0 && metrics.waterMl >= metrics.waterGoalMl;
+
+  const prevGoalStateRef = useRef<{ date: string; calorie: boolean; water: boolean }>({
+    date: activeDate,
+    calorie: calorieGoalMet,
+    water: waterGoalMet,
+  });
+
+  useEffect(() => {
+    const prev = prevGoalStateRef.current;
+    if (prev.date !== activeDate) {
+      prevGoalStateRef.current = {
+        date: activeDate,
+        calorie: calorieGoalMet,
+        water: waterGoalMet,
+      };
+      return;
+    }
+
+    if (!prev.water && waterGoalMet) {
+      setCelebration({ id: Date.now(), kind: 'water' });
+    } else if (!prev.calorie && calorieGoalMet) {
+      setCelebration({ id: Date.now(), kind: 'calorie' });
+    }
+
+    prevGoalStateRef.current = {
+      date: activeDate,
+      calorie: calorieGoalMet,
+      water: waterGoalMet,
+    };
+  }, [activeDate, calorieGoalMet, waterGoalMet]);
+
+  const handleCelebrationDone = useCallback(() => {
+    setCelebration(null);
+  }, []);
 
   const defaultLocalIdea = useMemo(() => {
     const rem = Math.max(150, remainingKcal);
@@ -251,6 +290,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="space-y-5">
+      <ConfettiOverlay
+        celebration={celebration}
+        language={language}
+        onDone={handleCelebrationDone}
+      />
+
       {/* Greeting & Horizontal Date Scroller */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
