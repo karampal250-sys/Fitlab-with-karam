@@ -315,7 +315,11 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     });
 
   const processPhotoFile = (file: File, autoAnalyzeOnSelect = true) => {
-    if (!file.type.startsWith('image/') && !/\.(jpg|jpeg|png|webp|heic|heif|avif|bmp|gif)$/i.test(file.name)) {
+    if (
+      file.type &&
+      !file.type.startsWith('image/') &&
+      !/\.(jpg|jpeg|png|webp|heic|heif|avif|bmp|gif)$/i.test(file.name)
+    ) {
       setPhotoError(
         isHi ? 'कृपया मान्य फ़ोटो फ़ाइल (JPG, PNG, WebP, HEIC) चुनें।' : 'Please choose a valid image file (JPG, PNG, WebP, HEIC).'
       );
@@ -412,16 +416,26 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         result = await requestOnce();
       }
 
-      const { ok, status, data, errorText } = result;
+      const { ok, status, data, errorText, failureReason } = result;
       if (!ok || !data) {
-        const fallbackMsg =
-          status === 413
-            ? isHi
-              ? 'फ़ोटो का साइज बहुत बड़ा है। कृपया छोटी या क्रॉप की गई फ़ोटो अपलोड करें।'
-              : 'Image file is too large. Please upload a smaller or cropped photo.'
-            : isHi
-              ? `फ़ोटो से पोषण गणना नहीं हो सकी (${errorText || `HTTP ${status}`})। कृपया पुनः प्रयास करें।`
-              : `Could not calculate nutrition from this image (${errorText || `HTTP ${status}`}). Please try again.`;
+        let fallbackMsg: string;
+        if (status === 413) {
+          fallbackMsg = isHi
+            ? 'फ़ोटो का साइज बहुत बड़ा है। कृपया छोटी या क्रॉप की गई फ़ोटो अपलोड करें।'
+            : 'Image file is too large. Please upload a smaller or cropped photo.';
+        } else if (failureReason === 'auth_redirect') {
+          fallbackMsg = isHi
+            ? 'स्टैंडअलोन PWA में AI सर्वर कुकी उपलब्ध नहीं है। कृपया इसे AI Studio प्रीव्यू या डिप्लॉय किए गए Cloud Run URL में खोलें।'
+            : 'Image AI requires an active session on this preview URL. Open inside AI Studio Preview or deploy the app to Cloud Run.';
+        } else if (failureReason === 'not_deployed_or_native') {
+          fallbackMsg = isHi
+            ? 'इस APK/स्टैटिक बिल्ड से AI बैकएंड जुड़ा नहीं है। कृपया पहले ऐप को डिप्लॉय करें और APK में VITE_API_BASE_URL सेट करें।'
+            : 'This APK or static page is not connected to the backend server yet. Deploy the app to Cloud Run (and set VITE_API_BASE_URL for APK builds).';
+        } else {
+          fallbackMsg = isHi
+            ? `फ़ोटो से पोषण गणना नहीं हो सकी (${errorText || `HTTP ${status}`})। कृपया पुनः प्रयास करें।`
+            : `Could not calculate nutrition from this image (${errorText || `HTTP ${status}`}). Please try again.`;
+        }
         setPhotoError(data?.error || fallbackMsg);
       } else {
         const items = data.items || [];
