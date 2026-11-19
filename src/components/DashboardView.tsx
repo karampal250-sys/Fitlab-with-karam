@@ -5,6 +5,7 @@ import {
   Droplets,
   Flame,
   Footprints,
+  Image as ImageIcon,
   Plus,
   RefreshCw,
   Sparkles,
@@ -42,7 +43,8 @@ interface DashboardViewProps {
   reminders: RemindersConfig;
   onUpdateMetrics: (next: DailyMetrics) => void;
   onDeleteLog: (id: string) => void;
-  onOpenLogger: (mealType: MealType) => void;
+  onOpenLogger: (mealType: MealType, initialTab?: 'search' | 'photo') => void;
+  onFastPhotoUpload?: (mealType: MealType, file: File) => void;
   onQuickLogSuggestion: (item: {
     foodName: string;
     servingUnit: string;
@@ -96,6 +98,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onUpdateMetrics,
   onDeleteLog,
   onOpenLogger,
+  onFastPhotoUpload,
   onQuickLogSuggestion,
   onUpdateReminders,
   onAddActivity,
@@ -653,14 +656,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {slotCals} kcal · {slotItems.length} {isHi ? 'आइटम' : slotItems.length === 1 ? 'item' : 'items'}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onOpenLogger(slot)}
-                      className="min-h-[44px] px-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      {t(language, 'addFood')}
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {onFastPhotoUpload ? (
+                        <label className="min-h-[44px] px-3 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-white dark:bg-[#090e0b] text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 cursor-pointer transition-colors">
+                          <ImageIcon className="w-4 h-4" />
+                          <span>{isHi ? 'फ़ोटो' : 'Photo'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) onFastPhotoUpload(slot, file);
+                              e.target.value = '';
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onOpenLogger(slot, 'photo')}
+                          className="min-h-[44px] px-3 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-white dark:bg-[#090e0b] text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors"
+                        >
+                          <ImageIcon className="w-4 h-4" />
+                          <span>{isHi ? 'फ़ोटो' : 'Photo'}</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onOpenLogger(slot)}
+                        className="min-h-[44px] px-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {t(language, 'addFood')}
+                      </button>
+                    </div>
                   </div>
 
                   {slotItems.length > 0 && (

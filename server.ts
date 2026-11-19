@@ -14,6 +14,102 @@ const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT || 3000);
 const MODEL_NAME = 'gemini-4-hydrogen';
 
+const FALLBACK_MODEL_NAME = 'gemini-3.1-flash-lite';
+
+function parseGeminiErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || 'AI request failed.');
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string; code?: number } };
+    if (parsed?.error?.message) return parsed.error.message;
+  } catch {
+    // not JSON
+  }
+  return raw;
+}
+
+function isRetryableGeminiError(err: unknown): boolean {
+  const msg = parseGeminiErrorMessage(err).toLowerCase();
+  return (
+    msg.includes('503') ||
+    msg.includes('unavailable') ||
+    msg.includes('high demand') ||
+    msg.includes('overloaded') ||
+    msg.includes('429') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('timeout') ||
+    msg.includes('network') ||
+    msg.includes('fetch failed')
+  );
+}
+
+function stripJsonCodeFences(text: string): string {
+  const trimmed = (text || '').trim();
+  const unwrapped = trimmed.startsWith('```')
+    ? trimmed
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim()
+    : trimmed;
+  if (unwrapped.startsWith('{') || unwrapped.startsWith('[')) {
+    return unwrapped;
+  }
+  const match = unwrapped.match(/\{[\s\S]*\}/);
+  return match ? match[0] : unwrapped;
+}
+
+async function generateContentWithFallback(
+  ai: GoogleGenAI,
+  params: {
+    contents: Parameters<GoogleGenAI['models']['generateContent']>[0]['contents'];
+    config?: Parameters<GoogleGenAI['models']['generateContent']>[0]['config'];
+    preferFastModel?: boolean;
+  }
+) {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  let lastErr: unknown = null;
+
+  const fastConfig = { ...(params.config || {}) };
+  delete fastConfig.thinkingConfig;
+
+  const hydrogenConfig = {
+    ...(params.config || {}),
+    thinkingConfig: params.config?.thinkingConfig ?? { thinkingLevel: ThinkingLevel.LOW },
+  };
+
+  const sequence = params.preferFastModel
+    ? [
+        { model: FALLBACK_MODEL_NAME, config: fastConfig, attempts: 2 },
+        { model: MODEL_NAME, config: hydrogenConfig, attempts: 1 },
+      ]
+    : [
+        { model: MODEL_NAME, config: hydrogenConfig, attempts: 2 },
+        { model: FALLBACK_MODEL_NAME, config: fastConfig, attempts: 2 },
+      ];
+
+  for (let s = 0; s < sequence.length; s++) {
+    const step = sequence[s];
+    for (let attempt = 0; attempt < step.attempts; attempt++) {
+      try {
+        return await ai.models.generateContent({
+          model: step.model,
+          contents: params.contents,
+          config: step.config,
+        });
+      } catch (err) {
+        lastErr = err;
+        const isLastStep = s === sequence.length - 1 && attempt === step.attempts - 1;
+        if (!isRetryableGeminiError(err) || isLastStep) {
+          if (!isRetryableGeminiError(err)) throw err;
+          break;
+        }
+        await sleep(350 * (attempt + 1));
+      }
+    }
+  }
+
+  throw lastErr;
+}
+
 function getGenAiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -195,38 +291,60 @@ async function startServer() {
       language?: 'en' | 'hi';
     };
 
-    if (!imageBase64) {
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
       res.status(400).json({ error: 'Please upload a food photo first.' });
       return;
     }
 
     const normalizeImageMime = (raw?: string): string => {
       const base = (raw || 'image/jpeg').split(';')[0].trim().toLowerCase();
-      if (base === 'image/png' || base === 'image/webp' || base === 'image/heic' || base === 'image/heif') {
-        return base;
+      if (
+        base === 'image/jpeg' ||
+        base === 'image/jpg' ||
+        base === 'image/png' ||
+        base === 'image/webp' ||
+        base === 'image/heic' ||
+        base === 'image/heif'
+      ) {
+        return base === 'image/jpg' ? 'image/jpeg' : base;
       }
       return 'image/jpeg';
     };
 
     try {
-      const cleanImg = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+      const dataUrlMime = imageBase64.match(/^data:([^;]+);base64,/i)?.[1];
+      const cleanImg = (imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64).replace(/\s+/g, '');
+      if (!cleanImg) {
+        res.status(400).json({ error: 'Uploaded image data was empty. Please choose a valid food photo.' });
+        return;
+      }
+
       const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [
         {
           inlineData: {
-            mimeType: normalizeImageMime(imageMimeType || mimeType),
+            mimeType: normalizeImageMime(dataUrlMime || imageMimeType || mimeType),
             data: cleanImg,
           },
         },
         {
-          text: `Analyze the uploaded food photo carefully and identify all visible food items.
-Calculate realistic Indian/household portion sizes (katori, piece, cup, gram, plate, glass, tbsp) and accurate nutrition (calories, protein, carbs, fat, fiber) for every item.
+          text: `Analyze the uploaded image carefully. It may contain ANY kind of food, dish, meal, beverage, sweet, pasta, snack, dry/raw ingredient (such as dry macaroni, uncooked pasta, rice, lentils, fruits, nuts), packaged food item, or food nutrition label.
+Identify ALL visible food items, ingredients, sauces, sides, and beverages.
+Calculate realistic portion sizes (katori, piece, cup, gram, plate, glass, bowl, tbsp) and accurate complete nutrition for every item:
+- grams
+- calories (kcal)
+- protein (g)
+- carbs (g)
+- fat (g)
+- fiber (g)
+If a plate or thali has multiple items (e.g., roti, dal, rice, sabzi, curd, salad, pasta with garlic bread, chai with biscuits), list every single visible item separately so the total sums accurately.
+If the image shows a packaged food or nutrition facts label, read the serving/package weight and extract its exact calories, protein, carbs, fat, and fiber.
 Respond in ${language === 'hi' ? 'Hindi (with clear food names)' : 'English'}.`,
         },
       ];
 
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
+      const response = await generateContentWithFallback(ai, {
         contents: { parts },
+        preferFastModel: true,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -257,10 +375,42 @@ Respond in ${language === 'hi' ? 'Hindi (with clear food names)' : 'English'}.`,
         },
       });
 
-      const parsed = JSON.parse((response.text ?? '{"dishSummary":"","items":[]}').trim());
-      res.json(parsed);
+      const rawText = stripJsonCodeFences(response.text ?? '{"dishSummary":"","items":[]}');
+      const parsed = JSON.parse(rawText) as {
+        dishSummary?: string;
+        items?: Array<Record<string, unknown>>;
+      };
+
+      const sanitizedItems = (Array.isArray(parsed.items) ? parsed.items : [])
+        .map((it) => ({
+          name: String(it.name || 'Food Item').trim(),
+          servingUnit: String(it.servingUnit || 'serving').trim(),
+          servingQty: Math.max(0.25, Math.round((Number(it.servingQty) || 1) * 10) / 10),
+          grams: Math.max(1, Math.round(Number(it.grams) || 100)),
+          calories: Math.max(0, Math.round(Number(it.calories) || 0)),
+          protein: Math.max(0, Math.round((Number(it.protein) || 0) * 10) / 10),
+          carbs: Math.max(0, Math.round((Number(it.carbs) || 0) * 10) / 10),
+          fat: Math.max(0, Math.round((Number(it.fat) || 0) * 10) / 10),
+          fiber: Math.max(0, Math.round((Number(it.fiber) || 0) * 10) / 10),
+        }))
+        .filter((it) => it.name.length > 0);
+
+      if (sanitizedItems.length === 0) {
+        res.status(422).json({
+          error:
+            language === 'hi'
+              ? 'इस तस्वीर में कोई भोजन स्पष्ट नहीं दिखा। कृपया भोजन की स्पष्ट फ़ोटो अपलोड करें।'
+              : 'No food items could be clearly identified in this photo. Please upload a clearer photo of your meal.',
+        });
+        return;
+      }
+
+      res.json({
+        dishSummary: String(parsed.dishSummary || ''),
+        items: sanitizedItems,
+      });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to analyze food photo.';
+      const msg = parseGeminiErrorMessage(err);
       res.status(500).json({ error: msg });
     }
   });
@@ -293,8 +443,7 @@ Respond in ${language === 'hi' ? 'Hindi (with clear food names)' : 'English'}.`,
     const fiberTarget = profile.fiberTargetG || Math.round((profile.dailyCalorieTarget / 1000) * 14);
 
     try {
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
+      const response = await generateContentWithFallback(ai, {
         contents: `Create a realistic, balanced 7-day day-wise Indian & global meal plan for ${profile.name}.
 Goal: ${profile.goalType} weight.
 Daily Targets to meet EVERY DAY:
@@ -355,7 +504,7 @@ Each day (Monday to Sunday) must have 4 meals (breakfast, lunch, snacks, dinner)
         },
       });
 
-      const plan = JSON.parse((response.text ?? '{}').trim());
+      const plan = JSON.parse(stripJsonCodeFences(response.text ?? '{}'));
       res.json({
         id: `mp_${Date.now()}`,
         budget,
@@ -364,7 +513,7 @@ Each day (Monday to Sunday) must have 4 meals (breakfast, lunch, snacks, dinner)
         ...plan,
       });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to generate meal plan.' });
+      res.status(500).json({ error: parseGeminiErrorMessage(err) });
     }
   });
 
@@ -394,8 +543,7 @@ Each day (Monday to Sunday) must have 4 meals (breakfast, lunch, snacks, dinner)
         : 'BOTH GYM and HOME workouts (e.g., 3 gym days + 2 home days)';
 
     try {
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
+      const response = await generateContentWithFallback(ai, {
         contents: `Generate an exact 5-day weekly ${modeDesc} plan for a ${profile.age}-year-old whose goal is to ${profile.goalType} weight (current activity: ${profile.activityLevel}).
 Requirements:
 - Exactly 5 workout days (Day 1 to Day 5).
@@ -441,7 +589,7 @@ Requirements:
         },
       });
 
-      const plan = JSON.parse((response.text ?? '{}').trim());
+      const plan = JSON.parse(stripJsonCodeFences(response.text ?? '{}'));
       res.json({
         id: `wp_${Date.now()}`,
         mode,
@@ -450,7 +598,7 @@ Requirements:
         ...plan,
       });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to generate workout plan.' });
+      res.status(500).json({ error: parseGeminiErrorMessage(err) });
     }
   });
 
@@ -471,8 +619,7 @@ Requirements:
     };
 
     try {
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
+      const response = await generateContentWithFallback(ai, {
         contents: `The user has ${Math.max(100, remainingCalories)} kcal and ${Math.max(
           5,
           remainingProteinG
@@ -503,10 +650,10 @@ Language: ${language === 'hi' ? 'Hindi' : 'English'}.`,
         },
       });
 
-      const parsed = JSON.parse((response.text ?? '{}').trim());
+      const parsed = JSON.parse(stripJsonCodeFences(response.text ?? '{}'));
       res.json(parsed);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get suggestion.' });
+      res.status(500).json({ error: parseGeminiErrorMessage(err) });
     }
   });
 
@@ -555,8 +702,7 @@ Language: ${language === 'hi' ? 'Hindi' : 'English'}.`,
     const safeTargets = targets || { calories: 2000, protein: 90, carbs: 220, fat: 65, fiber: 28 };
 
     try {
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
+      const response = await generateContentWithFallback(ai, {
         contents: `Evaluate the user's daily nutrition intake for ${activeDate || 'today'}.
 User Goal: ${goalType || 'maintain'} weight. Diet preference: ${dietType || 'veg'}.
 Daily Totals Logged:
@@ -591,7 +737,7 @@ Respond in ${language === 'hi' ? 'Hindi (Devanagari script)' : 'English'}.`,
         },
       });
 
-      const parsed = JSON.parse((response.text ?? '{}').trim()) as {
+      const parsed = JSON.parse(stripJsonCodeFences(response.text ?? '{}')) as {
         nutritionScore?: number;
         gradeLabel?: string;
         summary?: string;
@@ -611,7 +757,7 @@ Respond in ${language === 'hi' ? 'Hindi (Devanagari script)' : 'English'}.`,
         analyzedAt: new Date().toISOString(),
       });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to analyze daily meals.' });
+      res.status(500).json({ error: parseGeminiErrorMessage(err) });
     }
   });
 
@@ -651,8 +797,7 @@ Respond in ${language === 'hi' ? 'Hindi (Devanagari script)' : 'English'}.`,
         .map((m) => `${m.role === 'user' ? 'User' : 'Coach'}: ${m.text}`)
         .join('\n');
 
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
+      const response = await generateContentWithFallback(ai, {
         contents: `${historyText ? `Recent conversation:\n${historyText}\n\n` : ''}User question: ${message}`,
         config: {
           systemInstruction: `You are Fit-Plat with Karam Coach, a warm, practical nutrition and fitness assistant.
@@ -670,7 +815,7 @@ Reply in ${context.language === 'hi' ? 'Hindi (Devanagari)' : 'English'}.`,
 
       res.json({ reply: response.text || 'I could not generate a response right now.' });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Chat request failed.' });
+      res.status(500).json({ error: parseGeminiErrorMessage(err) });
     }
   });
 

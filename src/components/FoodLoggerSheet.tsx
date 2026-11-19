@@ -18,23 +18,28 @@ import type { DietType, FoodItem, FoodLogEntry, Language, MealType } from '../ty
 import { computeMacrosForGrams, INDIAN_AND_GLOBAL_FOODS } from '../data/indianFoods';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
+import pohaSampleImg from '../assets/images/fitplate_poha_breakfast_1794826256666.jpg';
+import thaliSampleImg from '../assets/images/fitplate_hero_thali_1794826405362.jpg';
+
+export type LoggerTab = 'search' | 'photo' | 'custom' | 'barcode' | 'favorites' | 'recent';
 
 interface FoodLoggerSheetProps {
   language: Language;
   activeDate: string;
   initialMealType: MealType;
+  initialTab?: LoggerTab;
+  initialPhotoFile?: File | null;
+  autoTrackDefault?: boolean;
   uid: string;
   customFoods: FoodItem[];
   favoriteIds: string[];
   recentFoodIds: string[];
   onToggleFavorite: (food: FoodItem) => void;
   onSaveCustomFood: (food: FoodItem) => void;
-  onAddLog: (entry: FoodLogEntry) => void;
+  onAddLog: (entry: FoodLogEntry, keepOpen?: boolean) => void;
   onClose?: () => void;
   isStandaloneTab?: boolean;
 }
-
-type LoggerTab = 'search' | 'photo' | 'custom' | 'barcode' | 'favorites' | 'recent';
 
 interface AiDetectedFood {
   name: string;
@@ -48,27 +53,37 @@ interface AiDetectedFood {
   fiber: number;
 }
 
-function resizeDataUrlIfNeeded(dataUrl: string, maxDim = 1280): Promise<string> {
+function resizeDataUrlIfNeeded(dataUrl: string, maxDim = 768): Promise<string> {
   return new Promise((resolve) => {
+    const mimeMatch = dataUrl.match(/^data:([^;]+);base64,/i)?.[1]?.toLowerCase() || '';
+    const isStandardMime =
+      mimeMatch === 'image/jpeg' || mimeMatch === 'image/png' || mimeMatch === 'image/webp';
+
     const img = new Image();
     img.onload = () => {
       const w = img.naturalWidth || img.width;
       const h = img.naturalHeight || img.height;
-      if (!w || !h || (w <= maxDim && h <= maxDim && dataUrl.length < 1_400_000)) {
+      if (!w || !h) {
+        resolve(dataUrl);
+        return;
+      }
+      if (isStandardMime && w <= maxDim && h <= maxDim && dataUrl.length < 280_000) {
         resolve(dataUrl);
         return;
       }
       const scale = Math.min(1, maxDim / Math.max(w, h));
       const canvas = document.createElement('canvas');
-      canvas.width = Math.round(w * scale);
-      canvas.height = Math.round(h * scale);
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         resolve(dataUrl);
         return;
       }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.85));
+      resolve(canvas.toDataURL('image/jpeg', 0.74));
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
@@ -79,6 +94,9 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   language,
   activeDate,
   initialMealType,
+  initialTab,
+  initialPhotoFile,
+  autoTrackDefault,
   uid,
   customFoods,
   favoriteIds,
@@ -91,7 +109,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
 }) => {
   const isHi = language === 'hi';
   const [mealType, setMealType] = useState<MealType>(initialMealType);
-  const [activeTab, setActiveTab] = useState<LoggerTab>('search');
+  const [activeTab, setActiveTab] = useState<LoggerTab>(initialTab || 'search');
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FoodItem[]>(INDIAN_AND_GLOBAL_FOODS);
   const [isSearching, setIsSearching] = useState(false);
@@ -117,6 +135,16 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [detectedItems, setDetectedItems] = useState<AiDetectedFood[]>([]);
   const [dishSummary, setDishSummary] = useState('');
   const [loggedAllDone, setLoggedAllDone] = useState(false);
+  const [fastAutoTrack, setFastAutoTrack] = useState<boolean>(() => {
+    if (typeof autoTrackDefault === 'boolean') return autoTrackDefault;
+    try {
+      const saved = localStorage.getItem('fitplate_fast_auto_track');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const handledInitialFileRef = useRef<File | null>(null);
 
   // Manual Custom Food & Recipe Builder state
   const [customName, setCustomName] = useState('');
@@ -129,13 +157,28 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [customFat, setCustomFat] = useState(7);
   const [customFib, setCustomFib] = useState(3);
   const [isRecipeMode, setIsRecipeMode] = useState(false);
+  const [recipeQuery, setRecipeQuery] = useState('');
   const [recipeIngredients, setRecipeIngredients] = useState<{ food: FoodItem; grams: number }[]>([]);
+  const [quickAddedBanner, setQuickAddedBanner] = useState<string | null>(null);
 
   const allKnownFoods = [...customFoods, ...INDIAN_AND_GLOBAL_FOODS];
 
   useEffect(() => {
     setMealType(initialMealType);
   }, [initialMealType]);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (initialPhotoFile && handledInitialFileRef.current !== initialPhotoFile) {
+      handledInitialFileRef.current = initialPhotoFile;
+      processPhotoFile(initialPhotoFile, true);
+    }
+  }, [initialPhotoFile]);
 
   // Debounced hybrid search (local Indian DB + Open Food Facts API)
   useEffect(() => {
@@ -225,10 +268,23 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, autoAnalyzeOnSelect = false) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processPhotoFile = (file: File, autoAnalyzeOnSelect = true) => {
+    if (!file.type.startsWith('image/') && !/\.(jpg|jpeg|png|webp|heic|heif|avif|bmp|gif)$/i.test(file.name)) {
+      setPhotoError(
+        isHi ? 'कृपया मान्य फ़ोटो फ़ाइल (JPG, PNG, WebP, HEIC) चुनें।' : 'Please choose a valid image file (JPG, PNG, WebP, HEIC).'
+      );
+      return;
+    }
+    setPhotoError(null);
+    if (autoAnalyzeOnSelect) {
+      setActiveTab('photo');
+      setPhotoLoading(true);
+    }
     const reader = new FileReader();
+    reader.onerror = () => {
+      setPhotoLoading(false);
+      setPhotoError(isHi ? 'फ़ोटो पढ़ने में त्रुटि हुई। कृपया दूसरी फ़ोटो चुनें।' : 'Could not read selected image file.');
+    };
     reader.onload = async () => {
       const resized = await resizeDataUrlIfNeeded(String(reader.result));
       setPhotoPreview(resized);
@@ -237,29 +293,41 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       setPhotoError(null);
       setLoggedAllDone(false);
       if (autoAnalyzeOnSelect) {
-        setActiveTab('photo');
         void analyzeFoodWithAi(resized);
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, autoAnalyzeOnSelect = false) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processPhotoFile(file, autoAnalyzeOnSelect);
     e.target.value = '';
   };
 
   const loadSamplePhotoForAi = async (imgPath: string) => {
     setPhotoError(null);
+    setPhotoLoading(true);
     try {
       const resp = await fetch(imgPath);
       const blob = await resp.blob();
       const reader = new FileReader();
+      reader.onerror = () => {
+        setPhotoLoading(false);
+        setPhotoError(isHi ? 'उदाहरण फ़ोटो लोड नहीं हो सकी।' : 'Could not load sample image.');
+      };
       reader.onload = async () => {
         const resized = await resizeDataUrlIfNeeded(String(reader.result));
         setPhotoPreview(resized);
         setDetectedItems([]);
         setDishSummary('');
         setLoggedAllDone(false);
+        void analyzeFoodWithAi(resized);
       };
       reader.readAsDataURL(blob);
     } catch {
+      setPhotoLoading(false);
       setPhotoError('Could not load sample image.');
     }
   };
@@ -279,7 +347,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     setPhotoError(null);
     setLoggedAllDone(false);
     try {
-      const { ok, data } = await safeFetchJson<{
+      const { ok, status, data } = await safeFetchJson<{
         dishSummary?: string;
         items?: AiDetectedFood[];
         error?: string;
@@ -293,15 +361,51 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         }),
       });
       if (!ok || !data) {
-        setPhotoError(
-          data?.error ||
-            (isHi
-              ? 'फ़ोटो से पोषण गणना अभी उपलब्ध नहीं है। आप "मैनुअल फ़ूड" से दर्ज कर सकते हैं।'
-              : 'Photo nutrition calculation failed or is unavailable offline. You can use Manual Food entry.')
-        );
+        const fallbackMsg =
+          status === 413
+            ? isHi
+              ? 'फ़ोटो का साइज बहुत बड़ा है। कृपया छोटी या क्रॉप की गई फ़ोटो अपलोड करें।'
+              : 'Image file is too large. Please upload a smaller or cropped photo.'
+            : isHi
+              ? 'फ़ोटो से पोषण गणना अभी उपलब्ध नहीं है। कृपया दोबारा प्रयास करें या मैनुअल फ़ूड से जोड़ें।'
+              : 'Could not calculate nutrition from this image right now. Please try again or use Manual Food entry.';
+        setPhotoError(data?.error || fallbackMsg);
       } else {
+        const items = data.items || [];
         setDishSummary(data.dishSummary || '');
-        setDetectedItems(data.items || []);
+        setDetectedItems(items);
+        if (fastAutoTrack && items.length > 0) {
+          const totalCal = items.reduce((s, it) => s + Math.round(it.calories || 0), 0);
+          items.forEach((it) => {
+            onAddLog(
+              {
+                id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                uid,
+                date: activeDate,
+                mealType,
+                foodId: `ai_${it.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 32)}`,
+                foodName: it.name,
+                servingUnit: it.servingUnit || 'serving',
+                servingQty: it.servingQty || 1,
+                grams: it.grams || 100,
+                calories: Math.round(it.calories),
+                protein: Number(it.protein) || 0,
+                carbs: Number(it.carbs) || 0,
+                fat: Number(it.fat) || 0,
+                fiber: Number(it.fiber) || 0,
+                source: 'ai_photo',
+                createdAt: new Date().toISOString(),
+              },
+              true
+            );
+          });
+          setLoggedAllDone(true);
+          setQuickAddedBanner(
+            isHi
+              ? `फास्ट ट्रैक: ${items.length} आइटम (${totalCal} kcal) ${t(language, mealType)} में ऑटो-जुड़ गए`
+              : `Fast Tracked: ${items.length} ${items.length === 1 ? 'item' : 'items'} (${totalCal} kcal) auto-logged to ${t(language, mealType)}`
+          );
+        }
       }
     } catch {
       setPhotoError(isHi ? 'नेटवर्क त्रुटि। कृपया पुनः प्रयास करें।' : 'Network error calculating food nutrition.');
@@ -310,11 +414,48 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     }
   };
 
+  const quickLogFoodDefault = (food: FoodItem, qty = 1) => {
+    const serving = food.servings[0];
+    if (!serving) return;
+    const totalGrams = Math.round(serving.grams * qty * 10) / 10;
+    const macros = computeMacrosForGrams(food, totalGrams);
+    const foodTitle = isHi ? food.nameHi : food.name;
+
+    onAddLog({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      uid,
+      date: activeDate,
+      mealType,
+      foodId: food.id,
+      foodName: foodTitle,
+      servingUnit: serving.unit,
+      servingQty: qty,
+      grams: totalGrams,
+      calories: macros.calories,
+      protein: macros.protein,
+      carbs: macros.carbs,
+      fat: macros.fat,
+      fiber: macros.fiber,
+      source: food.id.startsWith('off_')
+        ? 'open_food_facts'
+        : food.category === 'custom'
+        ? 'custom'
+        : 'indian_db',
+      createdAt: new Date().toISOString(),
+    });
+    setQuickAddedBanner(
+      isHi
+        ? `${foodTitle} (${macros.calories} kcal) ${t(language, mealType)} में जोड़ा गया`
+        : `Added ${foodTitle} (${macros.calories} kcal) to ${t(language, mealType)}`
+    );
+  };
+
   const logSelectedFood = () => {
     if (!selectedFood) return;
     const serving = selectedFood.servings[selectedServingIdx] || selectedFood.servings[0];
     const totalGrams = Math.round(serving.grams * servingQty * 10) / 10;
     const macros = computeMacrosForGrams(selectedFood, totalGrams);
+    const foodTitle = isHi ? selectedFood.nameHi : selectedFood.name;
 
     const entry: FoodLogEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -322,7 +463,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       date: activeDate,
       mealType,
       foodId: selectedFood.id,
-      foodName: isHi ? selectedFood.nameHi : selectedFood.name,
+      foodName: foodTitle,
       servingUnit: serving.unit,
       servingQty,
       grams: totalGrams,
@@ -339,11 +480,17 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       createdAt: new Date().toISOString(),
     };
     onAddLog(entry);
+    setQuickAddedBanner(
+      isHi
+        ? `${foodTitle} (${macros.calories} kcal) ${t(language, mealType)} में जोड़ा गया`
+        : `Added ${foodTitle} (${macros.calories} kcal) to ${t(language, mealType)}`
+    );
     setSelectedFood(null);
     setServingQty(1);
   };
 
-  const logAiItem = (item: AiDetectedFood) => {
+  const logAiItem = (item: AiDetectedFood, showBanner = true) => {
+    const kcal = Math.round(item.calories);
     onAddLog({
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       uid,
@@ -354,7 +501,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       servingUnit: item.servingUnit || 'serving',
       servingQty: item.servingQty || 1,
       grams: item.grams || 100,
-      calories: Math.round(item.calories),
+      calories: kcal,
       protein: Number(item.protein) || 0,
       carbs: Number(item.carbs) || 0,
       fat: Number(item.fat) || 0,
@@ -362,11 +509,23 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       source: 'ai_photo',
       createdAt: new Date().toISOString(),
     });
+    if (showBanner) {
+      setQuickAddedBanner(
+        isHi
+          ? `${item.name} (${kcal} kcal) ${t(language, mealType)} में जोड़ा गया`
+          : `Added ${item.name} (${kcal} kcal) to ${t(language, mealType)}`
+      );
+    }
   };
 
   const logAllAiItems = () => {
-    detectedItems.forEach((item) => logAiItem(item));
+    detectedItems.forEach((item) => logAiItem(item, false));
     setLoggedAllDone(true);
+    setQuickAddedBanner(
+      isHi
+        ? `${detectedItems.length} भोजन आइटम (${detectedTotals.calories} kcal) ${t(language, mealType)} में जोड़े गए`
+        : `Added ${detectedItems.length} items (${detectedTotals.calories} kcal) to ${t(language, mealType)}`
+    );
   };
 
   const editAiItemManually = (item: AiDetectedFood) => {
@@ -482,6 +641,11 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         source: 'custom',
         createdAt: new Date().toISOString(),
       });
+      setQuickAddedBanner(
+        isHi
+          ? `${food.name} (${totals.calories} kcal) ${t(language, mealType)} में जोड़ा गया`
+          : `Added ${food.name} (${totals.calories} kcal) to ${t(language, mealType)}`
+      );
     } else {
       setSelectedFood(food);
       setSelectedServingIdx(0);
@@ -503,6 +667,12 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     const byCategory =
       categoryFilter === 'all'
         ? searchResults
+        : categoryFilter === 'dal_recipes'
+        ? searchResults.filter(
+            (f) =>
+              f.category === 'dal_curry' &&
+              /\b(dal|sambhar|rasam|lobia|rajma|chole|khichdi|kadhi)\b/i.test(f.name)
+          )
         : categoryFilter === 'indian_mains'
         ? searchResults.filter((f) => f.category === 'bread_rice' || f.category === 'dal_curry')
         : searchResults.filter((f) => f.category === categoryFilter);
@@ -534,13 +704,14 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     () =>
       detectedItems.reduce(
         (acc, it) => ({
+          grams: acc.grams + Math.round(it.grams || 0),
           calories: acc.calories + Math.round(it.calories || 0),
           protein: Math.round((acc.protein + (it.protein || 0)) * 10) / 10,
           carbs: Math.round((acc.carbs + (it.carbs || 0)) * 10) / 10,
           fat: Math.round((acc.fat + (it.fat || 0)) * 10) / 10,
           fiber: Math.round((acc.fiber + (it.fiber || 0)) * 10) / 10,
         }),
-        { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
+        { grams: 0, calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
       ),
     [detectedItems]
   );
@@ -628,6 +799,24 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         ))}
       </div>
 
+      {/* Quick-Added Inline Confirmation */}
+      {quickAddedBanner && (
+        <div className="px-3.5 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs text-emerald-800 dark:text-emerald-200 font-semibold">
+          <span className="flex items-center gap-1.5 min-w-0 truncate">
+            <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="truncate">{quickAddedBanner}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setQuickAddedBanner(null)}
+            aria-label="Dismiss notice"
+            className="text-emerald-700 dark:text-emerald-300 shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Selected Food Serving Adjuster */}
       {selectedFood && activeMacros && activeServing && (
         <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-4">
@@ -640,6 +829,12 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                 {activeMacros.calories} kcal · P {activeMacros.protein}g · C {activeMacros.carbs}g · F {activeMacros.fat}g ·
                 Fib {activeMacros.fiber}g
               </p>
+              {selectedFood.ingredientsSummary && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                  {isHi ? 'सामग्री: ' : 'Recipe: '}
+                  {selectedFood.ingredientsSummary}
+                </p>
+              )}
             </div>
             <button
               type="button"
@@ -671,8 +866,8 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
                 {isHi ? 'मात्रा' : 'Quantity'}
               </label>
-              <div className="flex items-center gap-2">
-                {[0.5, 1, 1.5, 2].map((q) => (
+              <div className="flex items-center gap-1.5">
+                {[0.5, 1, 1.5, 2, 3].map((q) => (
                   <button
                     key={q}
                     type="button"
@@ -846,11 +1041,13 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
               {(
                 [
                   ['all', isHi ? 'सभी' : 'All Foods'],
+                  ['dal_recipes', isHi ? 'सभी दाल रेसिपी' : 'Dal Recipes'],
+                  ['pasta', isHi ? 'पास्ता व मैकरोनी' : 'Pasta & Macaroni'],
                   ['beverage', isHi ? 'चाय व ड्रिंक्स' : 'Drinks & Tea'],
+                  ['indian_mains', isHi ? 'रोटी, चावल व सब्ज़ी' : 'Roti, Rice & Curries'],
+                  ['breakfast', isHi ? 'नाश्ता' : 'Breakfast'],
                   ['sweets', isHi ? 'भारतीय मिठाई' : 'Indian Sweets'],
                   ['indo_chinese', isHi ? 'इंडो-चाइनीज' : 'Indo-Chinese'],
-                  ['indian_mains', isHi ? 'रोटी, चावल व दाल' : 'Roti, Rice & Dal'],
-                  ['breakfast', isHi ? 'नाश्ता' : 'Breakfast'],
                   ['snack_street', isHi ? 'चाट व स्नैक्स' : 'Street Snacks'],
                   ['protein_dairy', isHi ? 'प्रोटीन व डेयरी' : 'Protein & Dairy'],
                   ['fruit_nut', isHi ? 'फल व मेवे' : 'Fruits & Nuts'],
@@ -869,6 +1066,49 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                   {label}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* 1-Tap Everyday Staples Bar for ultra-fast food entry */}
+          {activeTab === 'search' && !query.trim() && categoryFilter === 'all' && !activeLetter && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                {isHi ? '1-टैप त्वरित जोड़ें (रोज़मर्रा के भोजन)' : '1-Tap Quick Add (Everyday Staples)'}
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                {[
+                  'roti_wheat',
+                  'toor_dal_plain',
+                  'mix_dal_panchratna',
+                  'masoor_dal',
+                  'steamed_basmati_rice',
+                  'ginger_tea_milk',
+                  'tea_without_sugar',
+                  'curd_dahi',
+                  'boiled_egg',
+                  'banana_medium',
+                ]
+                  .map((id) => INDIAN_AND_GLOBAL_FOODS.find((f) => f.id === id))
+                  .filter((f): f is FoodItem => Boolean(f))
+                  .map((item) => {
+                    const srv = item.servings[0];
+                    const mac = computeMacrosForGrams(item, srv.grams);
+                    return (
+                      <button
+                        key={`quick_${item.id}`}
+                        type="button"
+                        onClick={() => quickLogFoodDefault(item, 1)}
+                        className="min-h-[38px] px-3 rounded-xl bg-stone-50 dark:bg-[#090e0b] hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200/80 dark:border-emerald-900/50 text-xs font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span>{isHi ? item.nameHi.split('(')[0].trim() : item.name.split('(')[0].trim()}</span>
+                        <span className="font-mono-num text-[11px] text-slate-500 dark:text-slate-400">
+                          {mac.calories}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
             </div>
           )}
 
@@ -891,7 +1131,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                 return (
                   <div
                     key={food.id}
-                    className="py-3 flex items-center justify-between gap-3 hover:bg-stone-50 dark:hover:bg-emerald-950/20 px-2 rounded-xl transition-colors"
+                    className="py-3 flex items-center justify-between gap-2.5 hover:bg-stone-50 dark:hover:bg-emerald-950/20 px-2 rounded-xl transition-colors"
                   >
                     <button
                       type="button"
@@ -900,12 +1140,12 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                         setSelectedServingIdx(0);
                         setServingQty(1);
                       }}
-                      className="flex-1 text-left min-h-[44px] flex flex-col justify-center"
+                      className="flex-1 text-left min-h-[44px] flex flex-col justify-center min-w-0"
                     >
-                      <div className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+                      <div className="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">
                         {isHi ? food.nameHi : food.name}
                       </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-num mt-0.5">
+                      <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-num mt-0.5 truncate">
                         {isHi ? defaultSrv.labelHi : defaultSrv.labelEn} · {defaultMacros.calories} kcal · P {defaultMacros.protein}g
                       </div>
                     </button>
@@ -914,7 +1154,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                         type="button"
                         onClick={() => onToggleFavorite(food)}
                         aria-label="Favorite"
-                        className="min-h-[44px] min-w-[44px] rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors"
+                        className="min-h-[40px] min-w-[40px] rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors"
                       >
                         <Heart className={`w-4 h-4 ${isFav ? 'fill-rose-500 text-rose-500' : ''}`} />
                       </button>
@@ -925,9 +1165,17 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                           setSelectedServingIdx(0);
                           setServingQty(1);
                         }}
-                        className="min-h-[44px] px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold hover:bg-emerald-100 transition-colors"
+                        className="min-h-[40px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 text-xs font-medium text-slate-600 dark:text-slate-300 hover:border-emerald-400 transition-colors hidden sm:inline-flex items-center"
                       >
-                        {isHi ? 'जोड़ें' : 'Select'}
+                        {isHi ? 'मात्रा' : 'Qty'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => quickLogFoodDefault(food, 1)}
+                        className="min-h-[40px] px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isHi ? 'जोड़ें' : 'Add'}</span>
                       </button>
                     </div>
                   </div>
@@ -945,32 +1193,67 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  {isHi ? 'फ़ोटो से पोषण व कैलोरी गणना' : 'Food Photo Nutrition Calculator'}
+                  {isHi ? 'फ़ोटो से फास्ट ट्रैक पोषण' : 'Fast Track Food from Image'}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   {isHi
-                    ? 'भोजन की फ़ोटो अपलोड करें और इमेज के आधार पर कैलोरी, प्रोटीन, फाइबर और कार्ब्स की गणना करें।'
-                    : 'Upload a food photo to automatically calculate calories, protein, fiber, and carbs from the image.'}
+                    ? 'कोई भी फ़ोटो अपलोड करें — तुरंत कैलोरी, प्रोटीन, कार्ब्स, फैट व फाइबर गिनें।'
+                    : 'Upload any meal photo for instant calories, protein, carbs, fat & fiber.'}
                 </p>
               </div>
-              {photoPreview && (
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    setPhotoPreview(null);
-                    setDetectedItems([]);
-                    setDishSummary('');
-                    setPhotoError(null);
+                    const next = !fastAutoTrack;
+                    setFastAutoTrack(next);
+                    try {
+                      localStorage.setItem('fitplate_fast_auto_track', String(next));
+                    } catch {
+                      // ignore
+                    }
                   }}
-                  className="text-xs font-semibold text-rose-600 flex items-center gap-1"
+                  className={`min-h-[32px] px-2.5 rounded-xl text-[11px] font-semibold border transition-colors ${
+                    fastAutoTrack
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white dark:bg-[#111a15] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-emerald-900/50'
+                  }`}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  {isHi ? 'हटाएं' : 'Clear Photo'}
+                  {fastAutoTrack
+                    ? isHi
+                      ? 'ऑटो-लॉग: चालू'
+                      : 'Fast Auto-Log: ON'
+                    : isHi
+                    ? 'ऑटो-लॉग: बंद'
+                    : 'Fast Auto-Log: OFF'}
                 </button>
-              )}
+                {photoPreview && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoPreview(null);
+                      setDetectedItems([]);
+                      setDishSummary('');
+                      setPhotoError(null);
+                    }}
+                    className="text-xs font-semibold text-rose-600 flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {isHi ? 'हटाएं' : 'Clear'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            <label className="w-full min-h-[84px] p-4 rounded-2xl border-2 border-dashed border-emerald-400/80 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex flex-col items-center justify-center gap-1.5 cursor-pointer text-center transition-colors">
+            <label
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files?.[0];
+                if (file) processPhotoFile(file, true);
+              }}
+              className="w-full min-h-[84px] p-4 rounded-2xl border-2 border-dashed border-emerald-400/80 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex flex-col items-center justify-center gap-1.5 cursor-pointer text-center transition-colors"
+            >
               <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
                 <Upload className="w-4 h-4" />
                 <span>
@@ -979,12 +1262,14 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                       ? 'दूसरी भोजन फ़ोटो अपलोड करें'
                       : 'Upload Another Food Photo'
                     : isHi
-                    ? 'भोजन की फ़ोटो चुनें (कैलोरी, प्रोटीन, फाइबर व कार्ब्स गिनें)'
-                    : 'Upload Food Photo (Calculates Calories, Protein, Fiber & Carbs)'}
+                    ? 'कोई भी भोजन फ़ोटो अपलोड या ड्रॉप करें (पूरा पोषण गिनें)'
+                    : 'Upload or Drop Any Food Photo (Calculates Everything)'}
                 </span>
               </div>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                JPG, PNG, WebP · {isHi ? 'तस्वीर से तुरंत पोषण गणना' : 'Instant image nutrition breakdown'}
+                {isHi
+                  ? 'घर का खाना, पास्ता, मिठाई, पेय या पैकेट — कैलोरी, प्रोटीन, कार्ब्स, फैट व फाइबर'
+                  : 'Meals, Pasta, Drinks, Dry Food or Packets — Calories, Protein, Carbs, Fat & Fiber'}
               </span>
               <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, true)} className="hidden" />
             </label>
@@ -1018,19 +1303,30 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => loadSamplePhotoForAi('/src/assets/images/fitplate_poha_breakfast_1794826256666.jpg')}
+                onClick={() => loadSamplePhotoForAi(pohaSampleImg)}
                 className="min-h-[36px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-[11px] font-medium"
               >
                 {isHi ? 'उदाहरण: पोहा बाउल' : 'Sample: Poha Bowl'}
               </button>
               <button
                 type="button"
-                onClick={() => loadSamplePhotoForAi('/src/assets/images/fitplate_hero_thali_1794826405362.jpg')}
+                onClick={() => loadSamplePhotoForAi(thaliSampleImg)}
                 className="min-h-[36px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-[11px] font-medium"
               >
                 {isHi ? 'उदाहरण: भारतीय थाली' : 'Sample: Indian Thali'}
               </button>
             </div>
+
+            {photoLoading && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                <Sparkles className="w-4 h-4 animate-spin shrink-0" />
+                <span>
+                  {isHi
+                    ? 'फ़ोटो से कैलोरी, प्रोटीन, कार्ब्स, फैट और फाइबर गिने जा रहे हैं...'
+                    : 'Calculating calories, protein, carbs, fat & fiber from image...'}
+                </span>
+              </div>
+            )}
 
             {photoError && <p className="text-xs text-rose-600 dark:text-rose-400">{photoError}</p>}
 
@@ -1046,24 +1342,35 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                     <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
                       {isHi ? 'फ़ोटो से कुल पोषण गणना' : 'Calculated Nutrition from Image'}
                     </span>
-                    <button
-                      type="button"
-                      disabled={loggedAllDone}
-                      onClick={logAllAiItems}
-                      className="min-h-[38px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-700/70 text-white text-xs font-semibold flex items-center gap-1.5"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      {loggedAllDone
-                        ? isHi
-                          ? 'सभी जुड़ गए'
-                          : 'All Logged'
-                        : isHi
-                        ? `सभी ${t(language, mealType)} में जोड़ें`
-                        : `Log All to ${t(language, mealType)}`}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={loggedAllDone}
+                        onClick={logAllAiItems}
+                        className="min-h-[38px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-700/70 text-white text-xs font-semibold flex items-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        {loggedAllDone
+                          ? isHi
+                            ? 'सभी जुड़ गए'
+                            : 'All Logged'
+                          : isHi
+                          ? `सभी ${t(language, mealType)} में जोड़ें`
+                          : `Log All to ${t(language, mealType)}`}
+                      </button>
+                      {loggedAllDone && onClose && (
+                        <button
+                          type="button"
+                          onClick={onClose}
+                          className="min-h-[38px] px-3.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-semibold"
+                        >
+                          {isHi ? 'पूर्ण' : 'Done'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
                       <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                         {isHi ? 'कैलोरी' : 'Calories'}
@@ -1082,6 +1389,22 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                     </div>
                     <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
                       <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {t(language, 'carbs')}
+                      </div>
+                      <div className="font-mono-num text-sm font-bold text-sky-700 dark:text-sky-400">
+                        {detectedTotals.carbs} g
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
+                      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {t(language, 'fat')}
+                      </div>
+                      <div className="font-mono-num text-sm font-bold text-amber-700 dark:text-amber-400">
+                        {detectedTotals.fat} g
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
+                      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                         {t(language, 'fiber')}
                       </div>
                       <div className="font-mono-num text-sm font-bold text-teal-700 dark:text-teal-400">
@@ -1090,10 +1413,10 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                     </div>
                     <div className="p-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-emerald-200/70 dark:border-emerald-900/50">
                       <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                        {t(language, 'carbs')}
+                        {isHi ? 'कुल वज़न' : 'Weight'}
                       </div>
-                      <div className="font-mono-num text-sm font-bold text-sky-700 dark:text-sky-400">
-                        {detectedTotals.carbs} g
+                      <div className="font-mono-num text-sm font-bold text-slate-700 dark:text-slate-200">
+                        {detectedTotals.grams} g
                       </div>
                     </div>
                   </div>
@@ -1108,8 +1431,8 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                       <div className="text-sm font-semibold truncate">{item.name}</div>
                       <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-num">
                         {item.servingQty} {item.servingUnit} ({item.grams}g) · {item.calories} kcal ·{' '}
-                        {t(language, 'protein')} {item.protein}g · {t(language, 'fiber')} {item.fiber}g ·{' '}
-                        {t(language, 'carbs')} {item.carbs}g
+                        {t(language, 'protein')} {item.protein}g · {t(language, 'carbs')} {item.carbs}g ·{' '}
+                        {t(language, 'fat')} {item.fat}g · {t(language, 'fiber')} {item.fiber}g
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -1213,35 +1536,78 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
 
           {isRecipeMode ? (
             <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 space-y-3">
-              <div className="text-xs font-semibold">{isHi ? 'सामग्री जोड़ें' : 'Add Ingredients from Database'}</div>
-              <div className="flex flex-wrap gap-1.5">
-                {INDIAN_AND_GLOBAL_FOODS.slice(0, 12).map((ing) => (
-                  <button
-                    key={ing.id}
-                    type="button"
-                    onClick={() =>
-                      setRecipeIngredients((prev) => [...prev, { food: ing, grams: ing.servings[0].grams }])
-                    }
-                    className="min-h-[36px] px-2.5 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-[11px] font-medium"
-                  >
-                    + {isHi ? ing.nameHi : ing.name}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-semibold">
+                  {isHi ? 'सामग्री खोजें और जोड़ें' : 'Search & Add Ingredients'}
+                </div>
+                <input
+                  type="text"
+                  value={recipeQuery}
+                  onChange={(e) => setRecipeQuery(e.target.value)}
+                  placeholder={isHi ? 'दाल, रोटी, पनीर खोजें...' : 'Search dal, paneer, roti, ghee...'}
+                  className="w-full sm:w-56 min-h-[36px] px-3 rounded-lg border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] text-xs"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                {allKnownFoods
+                  .filter((ing) => {
+                    const q = recipeQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return ing.name.toLowerCase().includes(q) || ing.nameHi.toLowerCase().includes(q);
+                  })
+                  .slice(0, 16)
+                  .map((ing) => (
+                    <button
+                      key={ing.id}
+                      type="button"
+                      onClick={() =>
+                        setRecipeIngredients((prev) => [...prev, { food: ing, grams: ing.servings[0].grams }])
+                      }
+                      className="min-h-[34px] px-2.5 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] hover:border-emerald-400 text-[11px] font-medium"
+                    >
+                      + {isHi ? ing.nameHi : ing.name}
+                    </button>
+                  ))}
               </div>
               {recipeIngredients.length > 0 && (
-                <div className="space-y-1.5 pt-2 border-t border-slate-200 dark:border-emerald-900/50">
+                <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-emerald-900/50">
                   {recipeIngredients.map((item, idx) => (
-                    <div key={`${item.food.id}_${idx}`} className="flex items-center justify-between text-xs">
-                      <span>
-                        {item.food.name} ({item.grams}g)
+                    <div key={`${item.food.id}_${idx}`} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate font-medium">
+                        {isHi ? item.food.nameHi : item.food.name}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setRecipeIngredients((prev) => prev.filter((_, i) => i !== idx))}
-                        className="text-rose-600 font-medium"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0 font-mono-num">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRecipeIngredients((prev) =>
+                              prev.map((r, i) => (i === idx ? { ...r, grams: Math.max(10, r.grams - 25) } : r))
+                            )
+                          }
+                          className="w-6 h-6 rounded border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15]"
+                        >
+                          -
+                        </button>
+                        <span>{item.grams}g</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRecipeIngredients((prev) =>
+                              prev.map((r, i) => (i === idx ? { ...r, grams: r.grams + 25 } : r))
+                            )
+                          }
+                          className="w-6 h-6 rounded border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15]"
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRecipeIngredients((prev) => prev.filter((_, i) => i !== idx))}
+                          className="text-rose-600 font-medium ml-1"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

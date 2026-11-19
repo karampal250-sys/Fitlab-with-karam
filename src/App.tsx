@@ -8,6 +8,7 @@ import {
   Download,
   Globe,
   Home,
+  Image as ImageIcon,
   LogIn,
   LogOut,
   Menu,
@@ -78,7 +79,7 @@ import {
 import { t } from './i18n/translations';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { DashboardView } from './components/DashboardView';
-import { FoodLoggerSheet } from './components/FoodLoggerSheet';
+import { FoodLoggerSheet, type LoggerTab } from './components/FoodLoggerSheet';
 import { ProgressView } from './components/ProgressView';
 import { CoachView } from './components/CoachView';
 import { ProfileSettingsView } from './components/ProfileSettingsView';
@@ -158,6 +159,8 @@ export default function App() {
   const [darkMode, setDarkMode] = useState<boolean>(false);
 
   const [loggerModalMeal, setLoggerModalMeal] = useState<MealType | null>(null);
+  const [loggerInitialTab, setLoggerInitialTab] = useState<LoggerTab>('search');
+  const [loggerInitialPhoto, setLoggerInitialPhoto] = useState<File | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeAlarm, setActiveAlarm] = useState<{ slot: ScheduleSlot; isTest?: boolean } | null>(null);
   const [snoozedSlots, setSnoozedSlots] = useState<Record<string, string>>({});
@@ -461,11 +464,28 @@ export default function App() {
     }
   };
 
-  const handleAddFoodLog = (entry: FoodLogEntry) => {
+  const openFoodLogger = (meal: MealType, tab: LoggerTab = 'search', photoFile: File | null = null) => {
+    setLoggerInitialTab(tab);
+    setLoggerInitialPhoto(photoFile);
+    setLoggerModalMeal(meal);
+  };
+
+  const getDefaultMealForNow = (): MealType => {
+    const hr = new Date().getHours();
+    if (hr >= 5 && hr < 11) return 'breakfast';
+    if (hr >= 11 && hr < 16) return 'lunch';
+    if (hr >= 16 && hr < 19) return 'snacks';
+    return 'dinner';
+  };
+
+  const handleAddFoodLog = (entry: FoodLogEntry, keepOpen = false) => {
     const withUid = { ...entry, uid: currentUid };
     setFoodLogs((prev) => [withUid, ...prev]);
     setRecentFoodIds((prev) => [entry.foodId, ...prev.filter((id) => id !== entry.foodId)].slice(0, 15));
-    setLoggerModalMeal(null);
+    if (!keepOpen) {
+      setLoggerModalMeal(null);
+      setLoggerInitialPhoto(null);
+    }
     showToast(`${entry.foodName} · ${entry.calories} kcal`);
     if (firebaseUser) {
       syncFoodLogToCloud(currentUid, withUid).catch(() => {});
@@ -872,9 +892,26 @@ export default function App() {
               </span>
               <span className="hidden sm:inline">{t(language, 'profile')}</span>
             </button>
+            <label
+              title={language === 'hi' ? 'फ़ोटो से फास्ट ट्रैक' : 'Fast Track Food from Photo'}
+              className="min-h-[38px] px-2.5 sm:px-3 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            >
+              <ImageIcon className="w-4 h-4" />
+              <span className="hidden sm:inline">{language === 'hi' ? 'फ़ोटो ट्रैक' : 'Photo Track'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) openFoodLogger(getDefaultMealForNow(), 'photo', file);
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+            </label>
             <button
               type="button"
-              onClick={() => setLoggerModalMeal('lunch')}
+              onClick={() => openFoodLogger(getDefaultMealForNow(), 'search', null)}
               className="min-h-[38px] px-2.5 sm:px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -908,7 +945,8 @@ export default function App() {
             reminders={reminders}
             onUpdateMetrics={handleUpdateMetrics}
             onDeleteLog={handleDeleteFoodLog}
-            onOpenLogger={(meal) => setLoggerModalMeal(meal)}
+            onOpenLogger={(meal, tab) => openFoodLogger(meal, tab || 'search', null)}
+            onFastPhotoUpload={(meal, file) => openFoodLogger(meal, 'photo', file)}
             onQuickLogSuggestion={(idea) =>
               handleAddFoodLog({
                 id: `log_${Date.now()}`,
@@ -1034,6 +1072,8 @@ export default function App() {
               language={language}
               activeDate={activeDate}
               initialMealType={loggerModalMeal}
+              initialTab={loggerInitialTab}
+              initialPhotoFile={loggerInitialPhoto}
               uid={currentUid}
               customFoods={customFoods}
               favoriteIds={favoriteIds}
@@ -1041,7 +1081,10 @@ export default function App() {
               onToggleFavorite={handleToggleFavorite}
               onSaveCustomFood={handleSaveCustomFood}
               onAddLog={handleAddFoodLog}
-              onClose={() => setLoggerModalMeal(null)}
+              onClose={() => {
+                setLoggerModalMeal(null);
+                setLoggerInitialPhoto(null);
+              }}
             />
           </div>
         </div>
