@@ -17,7 +17,7 @@ export interface FoodItem {
   id: string;
   name: string;
   nameHi: string;
-  category: 'bread_rice' | 'dal_curry' | 'raita_salad' | 'breakfast' | 'snack_street' | 'beverage' | 'fruit_nut' | 'protein_dairy' | 'sweets' | 'indo_chinese' | 'sauces_dips' | 'pasta' | 'packaged' | 'custom';
+  category: 'bread_rice' | 'dal_curry' | 'raita_salad' | 'breakfast' | 'snack_street' | 'beverage' | 'fruit_nut' | 'protein_dairy' | 'sweets' | 'indo_chinese' | 'sauces_dips' | 'pasta' | 'pizza_fastfood' | 'rolls_wraps' | 'packaged' | 'custom';
   dietType: DietType;
   barcode?: string;
   allergens?: string[];
@@ -68,6 +68,18 @@ export interface UserProfile {
   updatedAt?: string;
 }
 
+export interface WorkoutSnackTriggersConfig {
+  plannedWorkoutTime: string; // HH:MM (24h) default planned workout start time
+  workoutDurationMin: number; // default planned session duration in minutes
+  dayWorkoutTimes?: Record<string, string>; // optional per-day overrides keyed by weekday/day name
+  preWorkoutEnabled: boolean;
+  preWorkoutOffsetMin: number; // minutes before workout start (e.g. 30, 45, 60)
+  preWorkoutSnackNote?: string;
+  postWorkoutEnabled: boolean;
+  postWorkoutOffsetMin: number; // minutes after workout finishes (e.g. 15, 30, 45)
+  postWorkoutSnackNote?: string;
+}
+
 export interface RemindersConfig {
   wakeUpTime: string; // HH:MM (24h)
   breakfast: string;
@@ -77,6 +89,7 @@ export interface RemindersConfig {
   enabled: boolean;
   alarmsEnabled?: boolean;
   soundEnabled?: boolean;
+  workoutReminders?: WorkoutSnackTriggersConfig;
 }
 
 export interface FoodLogEntry {
@@ -168,6 +181,7 @@ export interface CoachWorkoutDay {
   day: string;
   focus: string;
   durationMin: number;
+  plannedTime?: string;
   exercises: CoachWorkoutExercise[];
 }
 

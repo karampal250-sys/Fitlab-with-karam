@@ -18,6 +18,8 @@ import type { DietType, FoodItem, FoodLogEntry, Language, MealType } from '../ty
 import { computeMacrosForGrams, INDIAN_AND_GLOBAL_FOODS } from '../data/indianFoods';
 import {
   deduplicateFoods,
+  FOOD_CATEGORY_FILTERS,
+  getCategoryCounts,
   resolveLookupFoodItem,
   searchFoodsWithPriority,
 } from '../utils/foodSearch';
@@ -171,6 +173,8 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     [customFoods]
   );
 
+  const categoryCounts = useMemo(() => getCategoryCounts(allKnownFoods), [allKnownFoods]);
+
   useEffect(() => {
     setMealType(initialMealType);
   }, [initialMealType]);
@@ -191,7 +195,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   // Debounced hybrid search: local Indian+Global DB always responds immediately & ranks first; Open Food Facts supplements & deduplicates cleanly
   useEffect(() => {
     const trimmed = query.trim();
-    if (trimmed.length < 2) {
+    if (trimmed.length < 2 || (categoryFilter !== 'all' && categoryFilter !== 'packaged')) {
       setRemoteSearchResults([]);
       setIsSearching(false);
       return;
@@ -202,7 +206,11 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       setIsSearching(true);
       try {
         const { ok, data } = await safeFetchJson<{ items?: FoodItem[] }>(
-          apiUrl(`/api/foods/search?q=${encodeURIComponent(trimmed)}&lang=${encodeURIComponent(language)}`)
+          apiUrl(
+            `/api/foods/search?q=${encodeURIComponent(trimmed)}&category=${encodeURIComponent(
+              categoryFilter
+            )}&lang=${encodeURIComponent(language)}`
+          )
         );
         if (!cancelled && ok && data && Array.isArray(data.items)) {
           setRemoteSearchResults(data.items.filter((it) => it.id.startsWith('off_')));
@@ -218,7 +226,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, language]);
+  }, [query, categoryFilter, language]);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -1087,37 +1095,63 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
           )}
 
           {activeTab === 'search' && (
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-              {(
-                [
-                  ['all', isHi ? 'सभी' : 'All Foods'],
-                  ['dal_recipes', isHi ? 'सभी दाल रेसिपी' : 'Dal Recipes'],
-                  ['pasta', isHi ? 'पास्ता व मैकरोनी' : 'Pasta & Macaroni'],
-                  ['beverage', isHi ? 'चाय व ड्रिंक्स' : 'Drinks & Tea'],
-                  ['indian_mains', isHi ? 'रोटी, नान, चावल व सब्ज़ी' : 'Naan, Rice & Curries'],
-                  ['raita_salad', isHi ? 'रायता व सलाद' : 'Raita & Salad'],
-                  ['breakfast', isHi ? 'नाश्ता' : 'Breakfast'],
-                  ['sweets', isHi ? 'भारतीय मिठाई' : 'Indian Sweets'],
-                  ['indo_chinese', isHi ? 'इंडो-चाइनीज' : 'Indo-Chinese'],
-                  ['sauces_dips', isHi ? 'सॉस व डिप्स' : 'Sauces & Dips'],
-                  ['snack_street', isHi ? 'चाट व स्नैक्स' : 'Street Snacks'],
-                  ['protein_dairy', isHi ? 'प्रोटीन व डेयरी' : 'Protein & Dairy'],
-                  ['fruit_nut', isHi ? 'फल व मेवे' : 'Fruits & Nuts'],
-                ] as [string, string][]
-              ).map(([catId, label]) => (
-                <button
-                  key={catId}
-                  type="button"
-                  onClick={() => setCategoryFilter(catId)}
-                  className={`min-h-[34px] px-3 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 border transition-colors ${
-                    categoryFilter === catId
-                      ? 'bg-emerald-600 text-white border-emerald-600'
-                      : 'bg-stone-50 dark:bg-[#090e0b] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-emerald-900/50 hover:border-emerald-400'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                {FOOD_CATEGORY_FILTERS.map((cat) => {
+                  const count = categoryCounts[cat.id] ?? 0;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setCategoryFilter(cat.id)}
+                      className={`min-h-[34px] px-3 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 border transition-colors flex items-center gap-1.5 ${
+                        categoryFilter === cat.id
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-stone-50 dark:bg-[#090e0b] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-emerald-900/50 hover:border-emerald-400'
+                      }`}
+                    >
+                      <span>{isHi ? cat.labelHi : cat.labelEn}</span>
+                      <span
+                        className={`font-mono-num text-[10px] px-1.5 py-0.5 rounded-md ${
+                          categoryFilter === cat.id
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-200/70 dark:bg-emerald-950/80 text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {(categoryFilter !== 'all' || activeLetter) && (
+                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400 px-1">
+                  <span>
+                    {isHi
+                      ? `${alphabetSortedSearch.length} आइटम दिख रहे हैं`
+                      : `Showing ${alphabetSortedSearch.length} ${
+                          alphabetSortedSearch.length === 1 ? 'item' : 'items'
+                        }${
+                          categoryFilter !== 'all'
+                            ? ` in ${
+                                FOOD_CATEGORY_FILTERS.find((c) => c.id === categoryFilter)?.labelEn || categoryFilter
+                              }`
+                            : ''
+                        }${activeLetter ? ` starting with "${activeLetter}"` : ''}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryFilter('all');
+                      setActiveLetter(null);
+                    }}
+                    className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
+                  >
+                    {isHi ? 'फ़िल्टर हटाएं' : 'Clear filters'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

@@ -59,6 +59,7 @@ import {
   syncActivityLogToCloud,
   syncCoachPlanToCloud,
   syncCustomFoodToCloud,
+  deleteCustomFoodFromCloud,
   syncDailyMetricToCloud,
   syncDailyScheduleToCloud,
   syncFoodLogToCloud,
@@ -68,7 +69,7 @@ import {
 } from './services/firestoreSync';
 import { loadEncryptedState, saveEncryptedState, wipeAllLocalHealthData } from './utils/cryptoStorage';
 import { calculateNutritionPlan } from './utils/nutritionMath';
-import { buildDailySchedule, deriveMealTimesFromWakeUp } from './data/activitiesCatalog';
+import { buildDailySchedule, DEFAULT_WORKOUT_REMINDERS, deriveMealTimesFromWakeUp } from './data/activitiesCatalog';
 import {
   addMinutesToCurrentHHMM,
   getCurrentHHMM,
@@ -115,6 +116,7 @@ const DEFAULT_REMINDERS: RemindersConfig = {
   enabled: true,
   alarmsEnabled: true,
   soundEnabled: true,
+  workoutReminders: { ...DEFAULT_WORKOUT_REMINDERS },
 };
 
 function todayIso(): string {
@@ -221,10 +223,16 @@ export default function App() {
                 ...DEFAULT_REMINDERS,
                 ...savedRem,
                 wakeUpTime: savedRem.wakeUpTime || fallbackWake,
+                workoutReminders: {
+                  ...DEFAULT_WORKOUT_REMINDERS,
+                  ...(savedRem.workoutReminders || {}),
+                  dayWorkoutTimes: { ...(savedRem.workoutReminders?.dayWorkoutTimes || {}) },
+                },
               }
             : {
                 ...DEFAULT_REMINDERS,
                 ...deriveMealTimesFromWakeUp(fallbackWake),
+                workoutReminders: { ...DEFAULT_WORKOUT_REMINDERS },
               }
         );
         setLanguage(saved.language || 'en');
@@ -595,7 +603,7 @@ export default function App() {
   };
 
   const handleTestAlarm = () => {
-    const slots = buildDailySchedule(reminders, activeMetrics.waterGoalMl);
+    const slots = buildDailySchedule(reminders, activeMetrics.waterGoalMl, new Date());
     const sample = slots.find((s) => !activeCompletedSlotIds.includes(s.id)) || slots[0];
     if (!sample) return;
     if (reminders.soundEnabled !== false) {
@@ -611,6 +619,42 @@ export default function App() {
     setActiveAlarm({ slot: sample, isTest: true });
   };
 
+  const handleTestWorkoutSnackAlarm = (kind: 'pre' | 'post') => {
+    const slots = buildDailySchedule(reminders, activeMetrics.waterGoalMl, new Date());
+    const targetId = kind === 'pre' ? 'meal_pre_workout' : 'meal_post_workout';
+    const fallbackWr = { ...DEFAULT_WORKOUT_REMINDERS, ...(reminders.workoutReminders || {}) };
+    const slot =
+      slots.find((s) => s.id === targetId) || {
+        id: targetId,
+        time: fallbackWr.plannedWorkoutTime,
+        offsetMin: 0,
+        kind: 'meal' as const,
+        mealType: 'snacks' as const,
+        titleEn: kind === 'pre' ? 'Pre-Workout Snack' : 'Post-Workout Snack',
+        titleHi: kind === 'pre' ? 'प्री-वर्कआउट स्नैक' : 'पोस्ट-वर्कआउट स्नैक',
+        detailEn:
+          kind === 'pre'
+            ? fallbackWr.preWorkoutSnackNote || 'Banana + Black Coffee'
+            : fallbackWr.postWorkoutSnackNote || 'Whey Shake / Paneer / Eggs',
+        detailHi:
+          kind === 'pre'
+            ? fallbackWr.preWorkoutSnackNote || 'केला + ब्लैक कॉफी'
+            : fallbackWr.postWorkoutSnackNote || 'व्हे प्रोटीन / पनीर / अंडे',
+      };
+
+    if (reminders.soundEnabled !== false) {
+      playAlarmChime(slot.kind);
+    }
+    triggerBrowserNotification(
+      language === 'hi'
+        ? `Fit-Plat with Karam अलार्म: ${slot.titleHi}`
+        : `Fit-Plat with Karam Alarm: ${slot.titleEn}`,
+      language === 'hi' ? slot.detailHi : slot.detailEn,
+      `test_${targetId}_${Date.now()}`
+    );
+    setActiveAlarm({ slot, isTest: true });
+  };
+
   // Monitor scheduled eating, hydration & activity alarms every 10 seconds
   useEffect(() => {
     if (!hydrated || !profile) return;
@@ -620,7 +664,7 @@ export default function App() {
       const now = new Date();
       const nowHHMM = getCurrentHHMM(now);
       const todayKey = now.toISOString().slice(0, 10);
-      const slots = buildDailySchedule(reminders, activeMetrics.waterGoalMl);
+      const slots = buildDailySchedule(reminders, activeMetrics.waterGoalMl, now);
 
       for (const slot of slots) {
         if (activeCompletedSlotIds.includes(slot.id)) continue;
@@ -674,10 +718,23 @@ export default function App() {
   };
 
   const handleSaveCustomFood = (food: FoodItem) => {
-    setCustomFoods((prev) => [food, ...prev]);
+    setCustomFoods((prev) => [food, ...prev.filter((f) => f.id !== food.id)]);
     if (firebaseUser) {
       syncCustomFoodToCloud(currentUid, food).catch(() => {});
     }
+    showToast(
+      language === 'hi'
+        ? `${food.name} कस्टम रेसिपी में सहेजा गया`
+        : `Saved "${food.name}" to Custom Recipes`
+    );
+  };
+
+  const handleDeleteCustomFood = (foodId: string) => {
+    setCustomFoods((prev) => prev.filter((f) => f.id !== foodId));
+    if (firebaseUser) {
+      deleteCustomFoodFromCloud(currentUid, foodId).catch(() => {});
+    }
+    showToast(language === 'hi' ? 'रेसिपी हटाई गई' : 'Custom recipe removed');
   };
 
   const handleAddProgressEntry = (entry: ProgressEntry) => {
@@ -1011,6 +1068,13 @@ export default function App() {
             mealPlan={mealPlan}
             workoutPlan={workoutPlan}
             chatMessages={chatMessages}
+            customFoods={customFoods}
+            reminders={reminders}
+            onUpdateReminders={handleUpdateReminders}
+            onEnableAlarms={handleEnableAlarms}
+            onTestWorkoutSnackAlarm={handleTestWorkoutSnackAlarm}
+            onSaveCustomFood={handleSaveCustomFood}
+            onDeleteCustomFood={handleDeleteCustomFood}
             onSaveMealPlan={(plan) => {
               setMealPlan(plan);
               if (firebaseUser) syncCoachPlanToCloud(currentUid, 'meal_plan', plan.title, plan).catch(() => {});
@@ -1022,21 +1086,21 @@ export default function App() {
             onAppendChat={(msgs) => setChatMessages((prev) => [...prev, ...msgs])}
             onLogPlannedMeal={(m) =>
               handleAddFoodLog({
-                id: `log_${Date.now()}`,
+                id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
                 uid: currentUid,
                 date: activeDate,
                 mealType: m.mealType,
-                foodId: `coach_${Date.now()}`,
+                foodId: m.foodId || `coach_${Date.now()}`,
                 foodName: m.title,
-                servingUnit: m.portion,
-                servingQty: 1,
-                grams: 200,
+                servingUnit: (m.servingUnit || m.portion).slice(0, 32),
+                servingQty: m.servingQty ?? 1,
+                grams: m.grams ?? 200,
                 calories: m.calories,
                 protein: m.protein,
                 carbs: m.carbs,
                 fat: m.fat,
                 fiber: m.fiber,
-                source: 'coach',
+                source: m.source || 'coach',
                 createdAt: new Date().toISOString(),
               })
             }

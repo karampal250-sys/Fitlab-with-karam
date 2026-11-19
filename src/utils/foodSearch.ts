@@ -48,6 +48,13 @@ const SYNONYM_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\b(momoz|momo)\b/g, 'momos'],
   [/\b(szechuan|schezuan|sichuan)\b/g, 'schezwan'],
   [/\b(drt)\b/g, 'dry'],
+  [/\b(margerita|margharita|margheritta|margrita)\b/g, 'margherita'],
+  [/\b(pizaa|piza|pizzza)\b/g, 'pizza'],
+  [/\b(tecobell|tacobell|tako bell|teco bell)\b/g, 'taco bell'],
+  [/\b(mcdonalds|mc donalds|mc donald|macdonalds|macdonald|mcd)\b/g, 'mcdonald'],
+  [/\b(burgerking|bk)\b/g, 'burger king'],
+  [/\b(panner|panneer)\b/g, 'paneer'],
+  [/\b(frankie|franky|kathi)\b/g, 'roll'],
 ];
 
 export function canonicalizeFoodTerms(input: string): string {
@@ -74,9 +81,14 @@ export function canonicalFoodNameKey(name: string): string {
  */
 export const FOOD_LOCAL_ALIASES: Record<string, string[]> = {
   roti_wheat: ['chapati', 'phulka', 'tawa roti', 'gehu ki roti', 'wheat chapati'],
-  steamed_basmati_rice: ['plain basmati rice', 'plain rice', 'chawal', 'sada chawal', 'white rice', 'bhat'],
+  plain_rice_white: ['plain rice', 'sada rice', 'sada chawal', 'white rice', 'boiled rice', 'chawal', 'bhat'],
+  steamed_basmati_rice: ['plain basmati rice', 'basmati chawal', 'steamed rice'],
   jeera_rice: ['zeera rice', 'cumin rice', 'jeera chawal'],
-  veg_pulao: ['vegetable pulao', 'pulao', 'veg pulav', 'tawa pulao'],
+  veg_pulao: ['vegetable pulao', 'pulao', 'veg pulav'],
+  mix_veg_rice: ['mixveg rice', 'mix veg rice', 'mixed vegetable rice', 'sabzi chawal', 'vegetable masala rice'],
+  desi_tawa_fry_rice: ['fry rice', 'fried chawal', 'tawa fry rice', 'tadka rice', 'masala fry rice'],
+  veg_fried_rice: ['fry rice', 'veg fry rice', 'chinese fried rice'],
+  paneer_tawa_pulao: ['tawa pulao', 'mumbai tawa pulao', 'street pulao'],
   matar_pulao: ['peas pulao', 'matar pulav'],
   kashmiri_pulao: ['shahi pulao', 'mewa pulao', 'dry fruit pulao'],
   veg_biryani: ['veg biryani', 'vegetable biryani', 'subz biryani'],
@@ -84,6 +96,13 @@ export const FOOD_LOCAL_ALIASES: Record<string, string[]> = {
   dal_khichdi_tadka: ['dal khichdi', 'khichdi tadka', 'hotel dal khichdi'],
   lemon_rice: ['chitranna', 'nimbu chawal', 'nimmakaya pulihora'],
   curd_rice: ['thayir sadam', 'dahi chawal', 'baghala bath'],
+  tamarind_rice: ['puliyogare', 'pulihora', 'imli chawal'],
+  tomato_rice: ['thakkali sadam', 'tamatar chawal'],
+  coconut_rice: ['thengai sadam', 'nariyal chawal'],
+  ghee_rice: ['neychoru', 'ghee chawal'],
+  pongal_ven: ['ven pongal', 'khara pongal'],
+  tahiri_veg: ['tehri', 'tahari', 'veg tehri'],
+  rice_porridge_kanji: ['congee', 'kanji', 'pej', 'rice gruel'],
 
   curd_dahi: ['plain curd', 'dahi', 'yogurt', 'natural dahi'],
   boondi_raita: ['bundi raita', 'boondi dahi'],
@@ -174,6 +193,64 @@ export const FOOD_LOCAL_ALIASES: Record<string, string[]> = {
   mint_mayo: ['pudina mayo', 'mint mayonnaise'],
   garlic_mayo: ['garlic mayonnaise', 'toum mayo'],
   tomato_ketchup: ['ketchup', 'tomato sauce'],
+
+  margherita_pizza: ['margerita pizza', 'cheese pizza', 'dominos margherita', 'pizza hut margherita'],
+  onion_pizza: ['onion pizaa', 'pyaz pizza', 'pizza mania onion', 'simply veg onion pizza'],
+  onion_capsicum_pizza: ['onion capsicum pizza', 'veg pizza', 'capsicum onion pizza'],
+  golden_corn_pizza: ['sweet corn pizza', 'cheese corn pizza', 'golden corn pizza mania'],
+  farmhouse_veg_pizza: ['farmhouse pizza', 'farm house pizza', 'veg farmhouse'],
+  peppy_paneer_pizza: ['peppy paneer pizza', 'paneer pizza', 'dominos paneer pizza'],
+  indi_tandoori_paneer_pizza: ['tandoori paneer pizza', 'indian paneer pizza'],
+  veg_extravaganza_pizza: ['veg extravaganza', 'supreme veg pizza'],
+  cheese_burst_margherita_pizza: ['cheese burst pizza', 'double cheese margherita'],
+  classic_pepperoni_pizza: ['pepperoni pizza', 'meat pizza'],
+  chicken_tikka_pizza: ['chicken pizza', 'tandoori chicken pizza'],
+  bbq_chicken_pizza: ['barbeque chicken pizza', 'bbq chicken pizza'],
+
+  mcd_mcaloo_tikki: ['mcaloo tikki', 'mc aloo tikki', 'mcdonald aloo tikki burger', 'mcd burger'],
+  mcd_mcveggie: ['mcveggie', 'mc veggie', 'mcdonald veg burger'],
+  mcd_mcspicy_paneer: ['mcspicy paneer', 'mc spicy paneer', 'mcdonald paneer burger'],
+  mcd_veg_maharaja_mac: ['veg maharaja mac', 'maharaja burger'],
+  mcd_mcchicken: ['mcchicken', 'mc chicken', 'mcdonald chicken burger'],
+  mcd_mcspicy_chicken: ['mcspicy chicken', 'mc spicy chicken'],
+  mcd_chicken_maharaja_mac: ['chicken maharaja mac', 'maharaja chicken burger'],
+  mcd_filet_o_fish: ['filet o fish', 'fish burger mcdonalds'],
+  mcd_mcegg_burger: ['mcegg', 'mc egg burger', 'egg burger'],
+  mcd_french_fries: ['mcdonalds fries', 'mcd fries', 'mc fries'],
+  mcd_chicken_mcnuggets: ['mcnuggets', 'chicken nuggets mcdonalds'],
+
+  bk_veg_whopper: ['veg whopper', 'whopper veg', 'burger king whopper'],
+  bk_chicken_whopper: ['chicken whopper', 'whopper chicken'],
+  bk_mutton_whopper: ['mutton whopper', 'whopper mutton'],
+  bk_crispy_veg: ['bk crispy veg', 'burger king veg burger', 'crispy veg burger'],
+  bk_crispy_chicken: ['bk crispy chicken', 'burger king chicken burger'],
+  bk_paneer_king: ['paneer king burger', 'bk paneer royale'],
+  bk_king_fries: ['burger king fries', 'bk fries'],
+
+  tb_crunchy_taco_veg: ['taco bell taco', 'crunchy veg taco', 'tecobell taco', 'bean taco'],
+  tb_crunchy_taco_chicken: ['crunchy chicken taco', 'taco bell chicken taco'],
+  tb_naked_chicken_taco: ['naked chicken taco', 'taco bell naked chicken'],
+  tb_7_layer_burrito_veg: ['veg burrito', 'taco bell burrito', '7 layer burrito'],
+  tb_mexican_chicken_burrito: ['chicken burrito', 'taco bell chicken burrito'],
+  tb_cheese_quesadilla: ['cheese quesadilla', 'veg quesadilla', 'taco bell quesadilla'],
+  tb_chicken_quesadilla: ['chicken quesadilla', 'taco bell chicken quesadilla'],
+  tb_crunchwrap_supreme_veg: ['crunchwrap', 'crunch wrap veg', 'taco bell crunchwrap'],
+  tb_crunchwrap_supreme_chicken: ['crunchwrap chicken', 'taco bell chicken crunchwrap'],
+  tb_bell_nachos_supreme: ['taco bell nachos', 'loaded nachos'],
+
+  veg_kathi_roll: ['veg roll', 'vegetable roll', 'veg frankie', 'veg kathi roll', 'mix veg roll'],
+  aloo_tikki_roll: ['aloo roll', 'potato roll', 'aloo frankie'],
+  paneer_roll: ['paneer roll', 'panner roll', 'paneer kathi roll', 'paneer frankie'],
+  paneer_tikka_roll: ['paneer tikka roll', 'tandoori paneer roll'],
+  egg_roll_kathi: ['egg roll', 'anda roll', 'kolkata egg roll', 'single egg roll'],
+  double_egg_roll: ['double egg roll', '2 egg roll', 'double anda roll'],
+  chicken_roll_kathi: ['chicken roll', 'chicken kathi roll', 'chicken frankie'],
+  double_chicken_roll: ['double chicken roll', '2x chicken roll'],
+  egg_chicken_roll: ['egg chicken roll', 'egg-chicken roll', 'chicken egg roll', 'anda chicken roll', 'kolkata chicken egg roll'],
+  double_egg_chicken_roll: ['double egg chicken roll', 'double egg double chicken roll'],
+  soya_chaap_roll: ['soya roll', 'soyabean roll', 'chaap roll'],
+  cheese_corn_roll: ['cheese corn roll', 'corn cheese roll'],
+  mutton_seekh_roll: ['mutton roll', 'seekh kabab roll'],
 };
 
 /**
@@ -213,6 +290,17 @@ export const LOCAL_QUERY_SYNONYMS: Record<string, string> = {
   kheera: 'cucumber',
   sakkarai: 'sweet pongal',
   payasam: 'kheer',
+  margerita: 'margherita',
+  pizaa: 'pizza',
+  tecobell: 'taco bell',
+  tacobell: 'taco bell',
+  mcd: 'mcdonald',
+  mcdonalds: 'mcdonald',
+  whopper: 'burger king whopper',
+  mcaloo: 'mcaloo tikki',
+  frankie: 'roll',
+  kathi: 'roll',
+  panner: 'paneer',
 };
 
 /**
@@ -234,6 +322,12 @@ const LOCAL_HI_MAPPINGS: Array<[RegExp, string]> = [
   [/salad/i, 'सलाद'],
   [/macaroni|microni/i, 'मैकरोनी'],
   [/pasta/i, 'पास्ता'],
+  [/pizza/i, 'पिज़्ज़ा'],
+  [/burger|whopper/i, 'बर्गर'],
+  [/taco/i, 'टैको'],
+  [/burrito/i, 'बरीटो'],
+  [/quesadilla/i, 'केसाडिला'],
+  [/kathi roll|frankie|egg roll|paneer roll|chicken roll|veg roll/i, 'रोल'],
   [/noodles|chowmein/i, 'नूडल्स'],
   [/manchurian/i, 'मंचूरियन'],
   [/ketchup/i, 'टोमैटो केचप'],
@@ -330,6 +424,189 @@ export function deduplicateFoods(items: FoodItem[]): FoodItem[] {
   return result;
 }
 
+export interface FoodCategoryFilterOption {
+  id: string;
+  labelEn: string;
+  labelHi: string;
+  keywords: string;
+}
+
+export const FOOD_CATEGORY_FILTERS: FoodCategoryFilterOption[] = [
+  { id: 'all', labelEn: 'All Foods', labelHi: 'सभी', keywords: 'all foods' },
+  {
+    id: 'beverage',
+    labelEn: 'Beverages',
+    labelHi: 'ड्रिंक्स व चाय',
+    keywords: 'beverages beverage drinks drink tea chai iced tea coffee kaapi lassi chaas buttermilk water milk sharbat juice cooler',
+  },
+  {
+    id: 'sweets',
+    labelEn: 'Indian Sweets',
+    labelHi: 'भारतीय मिठाई',
+    keywords: 'indian sweets sweet dessert desserts mithai halwa kheer phirni ladoo barfi jalebi ghewar panjiri pongal modak kulfi',
+  },
+  {
+    id: 'indo_chinese',
+    labelEn: 'Chinese',
+    labelHi: 'इंडो-चाइनीज',
+    keywords: 'chinese indo chinese noodles fried rice manchurian momos sizzler platter soup chilli paneer',
+  },
+  {
+    id: 'bread_rice',
+    labelEn: 'Naan, Roti & Rice',
+    labelHi: 'नान, रोटी व चावल',
+    keywords: 'naan roti chapati paratha kulcha rice pulao biryani khichdi bread flatbread',
+  },
+  {
+    id: 'dal_recipes',
+    labelEn: 'Dal Recipes',
+    labelHi: 'सभी दाल रेसिपी',
+    keywords: 'dal recipes lentils sambhar rasam rajma chole khichdi kadhi',
+  },
+  {
+    id: 'dal_curry',
+    labelEn: 'Curries & Sabzi',
+    labelHi: 'दाल व सब्ज़ी',
+    keywords: 'curry curries sabzi gravy paneer masala kadhi saag dal',
+  },
+  {
+    id: 'raita_salad',
+    labelEn: 'Raita & Salad',
+    labelHi: 'रायता व सलाद',
+    keywords: 'raita salad salads kachumber curd dahi',
+  },
+  {
+    id: 'pasta',
+    labelEn: 'Pasta & Macaroni',
+    labelHi: 'पास्ता व मैकरोनी',
+    keywords: 'pasta macaroni microni penne spaghetti alfredo arrabbiata',
+  },
+  {
+    id: 'sauces_dips',
+    labelEn: 'Sauces & Dips',
+    labelHi: 'सॉस व डिप्स',
+    keywords: 'sauces sauce dips dip chutney mayo mayonnaise ketchup salsa vinegar',
+  },
+  {
+    id: 'breakfast',
+    labelEn: 'Breakfast',
+    labelHi: 'नाश्ता',
+    keywords: 'breakfast nashta dosa idli poha upma uttapam chilla oats daliya',
+  },
+  {
+    id: 'snack_street',
+    labelEn: 'Street Snacks',
+    labelHi: 'चाट व स्नैक्स',
+    keywords: 'street snacks snack chaat pakora samosa vada pav bhaji kachori',
+  },
+  {
+    id: 'protein_dairy',
+    labelEn: 'Protein & Dairy',
+    labelHi: 'प्रोटीन व डेयरी',
+    keywords: 'protein dairy paneer egg eggs chicken fish meat tofu whey curd milk',
+  },
+  {
+    id: 'fruit_nut',
+    labelEn: 'Fruits & Nuts',
+    labelHi: 'फल व मेवे',
+    keywords: 'fruits fruit nuts nut dry fruits apple banana mango almond walnut',
+  },
+  {
+    id: 'pizza_fastfood',
+    labelEn: 'Pizza, Burgers & Tacos',
+    labelHi: 'पिज़्ज़ा, बर्गर व टैको',
+    keywords: 'pizza burgers burger tacos taco fastfood',
+  },
+  {
+    id: 'rolls_wraps',
+    labelEn: 'Rolls & Wraps',
+    labelHi: 'रोल्स व रैप्स',
+    keywords: 'rolls roll kathi frankie wraps wrap',
+  },
+  {
+    id: 'packaged',
+    labelEn: 'Packaged & Custom',
+    labelHi: 'पैकेज्ड व कस्टम',
+    keywords: 'packaged custom biscuit bread bar',
+  },
+];
+
+const CATEGORY_KEYWORDS_BY_ID: Record<string, string> = Object.fromEntries(
+  FOOD_CATEGORY_FILTERS.map((c) => [c.id, `${c.labelEn} ${c.keywords}`])
+);
+
+const CATEGORY_ALIAS_MAP: Record<string, string> = {
+  all: 'all',
+  'all foods': 'all',
+  indian_sweets: 'sweets',
+  'indian sweets': 'sweets',
+  sweets: 'sweets',
+  desserts: 'sweets',
+  dessert: 'sweets',
+  mithai: 'sweets',
+  chinese: 'indo_chinese',
+  'indo chinese': 'indo_chinese',
+  indo_chinese: 'indo_chinese',
+  beverages: 'beverage',
+  beverage: 'beverage',
+  drinks: 'beverage',
+  drink: 'beverage',
+  'drinks & tea': 'beverage',
+  tea: 'beverage',
+  'dal recipes': 'dal_recipes',
+  dal_recipes: 'dal_recipes',
+  dal: 'dal_recipes',
+  'naan roti rice': 'bread_rice',
+  'bread & rice': 'bread_rice',
+  bread_rice: 'bread_rice',
+  indian_mains: 'indian_mains',
+  'curries & sabzi': 'dal_curry',
+  dal_curry: 'dal_curry',
+  'raita & salad': 'raita_salad',
+  raita_salad: 'raita_salad',
+  raita: 'raita_salad',
+  salad: 'raita_salad',
+  'pasta & macaroni': 'pasta',
+  pasta: 'pasta',
+  'sauces & dips': 'sauces_dips',
+  sauces_dips: 'sauces_dips',
+  sauces: 'sauces_dips',
+  dips: 'sauces_dips',
+  breakfast: 'breakfast',
+  'street snacks': 'snack_street',
+  snack_street: 'snack_street',
+  snacks: 'snack_street',
+  'protein & dairy': 'protein_dairy',
+  protein_dairy: 'protein_dairy',
+  'fruits & nuts': 'fruit_nut',
+  fruit_nut: 'fruit_nut',
+  pizza_fastfood: 'pizza_fastfood',
+  'pizza burgers tacos': 'pizza_fastfood',
+  pizza: 'pizza_fastfood',
+  burgers: 'pizza_fastfood',
+  burger: 'pizza_fastfood',
+  mcdonald: 'pizza_fastfood',
+  'burger king': 'pizza_fastfood',
+  'taco bell': 'pizza_fastfood',
+  tacos: 'pizza_fastfood',
+  rolls_wraps: 'rolls_wraps',
+  'rolls wraps': 'rolls_wraps',
+  rolls: 'rolls_wraps',
+  roll: 'rolls_wraps',
+  wraps: 'rolls_wraps',
+  packaged: 'packaged',
+  custom: 'packaged',
+  'packaged & custom': 'packaged',
+};
+
+export function normalizeCategoryFilter(raw?: string | null): string {
+  const cleaned = normalizeFoodText(raw || '');
+  if (!cleaned) return 'all';
+  if (CATEGORY_ALIAS_MAP[cleaned]) return CATEGORY_ALIAS_MAP[cleaned];
+  const rawLower = String(raw || '').trim().toLowerCase();
+  return CATEGORY_ALIAS_MAP[rawLower] || rawLower || 'all';
+}
+
 function getSearchableCorpus(food: FoodItem): {
   nameNorm: string;
   nameCanonical: string;
@@ -338,13 +615,14 @@ function getSearchableCorpus(food: FoodItem): {
   extra: string;
 } {
   const aliases = (FOOD_LOCAL_ALIASES[food.id] || []).map((a) => canonicalizeFoodTerms(a));
+  const categoryHints = CATEGORY_KEYWORDS_BY_ID[food.category] || '';
   return {
     nameNorm: normalizeFoodText(food.name),
     nameCanonical: canonicalizeFoodTerms(food.name),
     hiNorm: normalizeFoodText(food.nameHi || ''),
     aliases,
     extra: canonicalizeFoodTerms(
-      `${food.category.replace(/_/g, ' ')} ${food.ingredientsSummary || ''} ${food.id.replace(/_/g, ' ')}`
+      `${food.category.replace(/_/g, ' ')} ${categoryHints} ${food.ingredientsSummary || ''} ${food.id.replace(/_/g, ' ')}`
     ),
   };
 }
@@ -420,7 +698,8 @@ export interface PrioritizedSearchOptions {
   limit?: number;
 }
 
-export function matchesCategoryFilter(food: FoodItem, categoryFilter: string): boolean {
+export function matchesCategoryFilter(food: FoodItem, rawCategoryFilter: string): boolean {
+  const categoryFilter = normalizeCategoryFilter(rawCategoryFilter);
   if (!categoryFilter || categoryFilter === 'all') return true;
   if (categoryFilter === 'dal_recipes') {
     return (
@@ -434,7 +713,19 @@ export function matchesCategoryFilter(food: FoodItem, categoryFilter: string): b
   if (categoryFilter === 'indian_mains') {
     return food.category === 'bread_rice' || food.category === 'dal_curry';
   }
+  if (categoryFilter === 'packaged') {
+    return food.category === 'packaged' || food.category === 'custom';
+  }
   return food.category === categoryFilter;
+}
+
+export function getCategoryCounts(foods: FoodItem[]): Record<string, number> {
+  const counts: Record<string, number> = { all: foods.length };
+  for (const cat of FOOD_CATEGORY_FILTERS) {
+    if (cat.id === 'all') continue;
+    counts[cat.id] = foods.filter((f) => matchesCategoryFilter(f, cat.id)).length;
+  }
+  return counts;
 }
 
 /**

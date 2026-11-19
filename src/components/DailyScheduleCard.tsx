@@ -41,7 +41,7 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
   const nightShift = isNightShiftWakeTime(wakeUpTime);
   const alarmsOn = reminders.alarmsEnabled !== false && reminders.enabled !== false;
 
-  const slots = useMemo(() => buildDailySchedule(reminders, waterGoalMl), [reminders, waterGoalMl]);
+  const slots = useMemo(() => buildDailySchedule(reminders, waterGoalMl, nowTick), [reminders, waterGoalMl, nowTick]);
   const visibleSlots = useMemo(
     () => (filter === 'all' ? slots : slots.filter((s) => s.kind === filter)),
     [slots, filter]

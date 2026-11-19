@@ -22,11 +22,16 @@ import type {
   UserProfile,
 } from '../types/fitplate';
 import { CalorieHeroRing, SmallMacroRing, WaterProgressRing } from './MacroRings';
+import { MacroDistributionChart } from './MacroDistributionChart';
 import { DailyScheduleCard } from './DailyScheduleCard';
 import { ActivityBurnTracker } from './ActivityBurnTracker';
 import { MealAnalysisSummaryCard } from './MealAnalysisSummaryCard';
 import { ConfettiOverlay, type CelebrationKind } from './ConfettiOverlay';
-import { deriveMealTimesFromWakeUp } from '../data/activitiesCatalog';
+import {
+  computeWorkoutSnackTriggerTimes,
+  DEFAULT_WORKOUT_REMINDERS,
+  deriveMealTimesFromWakeUp,
+} from '../data/activitiesCatalog';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
@@ -144,7 +149,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [showExercisePicker, setShowExercisePicker] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [celebration, setCelebration] = useState<{ id: number; kind: CelebrationKind } | null>(null);
+  const [barsReady, setBarsReady] = useState(false);
 
+  useEffect(() => {
+    setBarsReady(false);
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setBarsReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [activeDate]);
+
+  const effectiveCalorieTarget = Math.max(1, profile.dailyCalorieTarget + metrics.exerciseCalories);
+  const calorieBarPct = Math.min(100, Math.max(0, Math.round((totals.calories / effectiveCalorieTarget) * 100)));
+  const proteinBarPct = Math.min(
+    100,
+    Math.max(0, Math.round((totals.protein / Math.max(1, profile.proteinTargetG)) * 100))
+  );
   const calorieGoalMet = profile.dailyCalorieTarget > 0 && totals.calories >= profile.dailyCalorieTarget;
   const waterGoalMet = metrics.waterGoalMl > 0 && metrics.waterMl >= metrics.waterGoalMl;
 
@@ -428,6 +452,65 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </select>
             </div>
           </div>
+          {(() => {
+            const wr = { ...DEFAULT_WORKOUT_REMINDERS, ...(reminders.workoutReminders || {}) };
+            const times = computeWorkoutSnackTriggerTimes({
+              plannedWorkoutTime: wr.plannedWorkoutTime,
+              workoutDurationMin: wr.workoutDurationMin,
+              preWorkoutOffsetMin: wr.preWorkoutOffsetMin,
+              postWorkoutOffsetMin: wr.postWorkoutOffsetMin,
+            });
+            const updateWr = (patch: Partial<typeof wr>) =>
+              onUpdateReminders({ ...reminders, workoutReminders: { ...wr, ...patch } });
+            return (
+              <div className="pt-2 border-t border-slate-100 dark:border-emerald-950 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                <div>
+                  <label className="block text-slate-500 mb-1">
+                    {isHi ? 'वर्कआउट समय (Coach)' : 'Planned Workout (Coach)'}
+                  </label>
+                  <input
+                    type="time"
+                    value={wr.plannedWorkoutTime}
+                    onChange={(e) => e.target.value && updateWr({ plannedWorkoutTime: e.target.value })}
+                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b]"
+                  />
+                </div>
+                <label className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40 cursor-pointer">
+                  <div>
+                    <div className="font-semibold text-slate-800 dark:text-slate-200">
+                      {isHi ? 'प्री-वर्कआउट स्नैक' : 'Pre-Workout Snack'}
+                    </div>
+                    <div className="font-mono-num text-[11px] text-amber-700 dark:text-amber-400">
+                      {times.preWorkoutTime} (-{wr.preWorkoutOffsetMin}m)
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={wr.preWorkoutEnabled}
+                    onChange={(e) => updateWr({ preWorkoutEnabled: e.target.checked })}
+                    className="w-4 h-4 accent-emerald-600 rounded"
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40 cursor-pointer">
+                  <div>
+                    <div className="font-semibold text-slate-800 dark:text-slate-200">
+                      {isHi ? 'पोस्ट-वर्कआउट स्नैक' : 'Post-Workout Snack'}
+                    </div>
+                    <div className="font-mono-num text-[11px] text-emerald-700 dark:text-emerald-400">
+                      {times.postWorkoutTime} (+{wr.postWorkoutOffsetMin}m)
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={wr.postWorkoutEnabled}
+                    onChange={(e) => updateWr({ postWorkoutEnabled: e.target.checked })}
+                    className="w-4 h-4 accent-emerald-600 rounded"
+                  />
+                </label>
+              </div>
+            );
+          })()}
+
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-emerald-950 text-xs">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -510,6 +593,69 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
+            {/* Animated Daily Calorie & Protein Progress Bars */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+              {/* Daily Calorie Progress Bar */}
+              <div className="p-3.5 rounded-2xl bg-stone-50/90 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {isHi ? 'दैनिक कैलोरी प्रगति' : 'Daily Calorie Progress'}
+                  </span>
+                  <span
+                    className={`font-mono-num font-bold ${
+                      remainingKcal < 0
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-emerald-700 dark:text-emerald-400'
+                    }`}
+                  >
+                    {totals.calories} / {effectiveCalorieTarget} kcal ({calorieBarPct}%)
+                  </span>
+                </div>
+                <div
+                  className="h-3 w-full rounded-full bg-slate-200/80 dark:bg-emerald-950/70 overflow-hidden"
+                  role="progressbar"
+                  aria-label={isHi ? 'दैनिक कैलोरी प्रगति' : 'Daily calorie progress'}
+                  aria-valuenow={calorieBarPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                      remainingKcal < 0
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                        : 'bg-gradient-to-r from-emerald-600 to-emerald-400'
+                    }`}
+                    style={{ width: `${barsReady ? calorieBarPct : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Daily Protein Progress Bar */}
+              <div className="p-3.5 rounded-2xl bg-stone-50/90 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {isHi ? 'दैनिक प्रोटीन प्रगति' : 'Daily Protein Progress'}
+                  </span>
+                  <span className="font-mono-num font-bold text-teal-700 dark:text-teal-400">
+                    {Math.round(totals.protein)} / {profile.proteinTargetG} g ({proteinBarPct}%)
+                  </span>
+                </div>
+                <div
+                  className="h-3 w-full rounded-full bg-slate-200/80 dark:bg-emerald-950/70 overflow-hidden"
+                  role="progressbar"
+                  aria-label={isHi ? 'दैनिक प्रोटीन प्रगति' : 'Daily protein progress'}
+                  aria-valuenow={proteinBarPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-1000 ease-out delay-150"
+                    style={{ width: `${barsReady ? proteinBarPct : 0}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* 4 Macro Rings */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <SmallMacroRing
@@ -538,6 +684,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               />
             </div>
           </section>
+
+          {/* Daily Macro Distribution Doughnut Chart (Recharts) */}
+          <MacroDistributionChart
+            language={language}
+            carbsG={totals.carbs}
+            proteinG={totals.protein}
+            fatG={totals.fat}
+            carbsTargetG={profile.carbsTargetG}
+            proteinTargetG={profile.proteinTargetG}
+            fatTargetG={profile.fatTargetG}
+            itemCount={dayLogs.length}
+            onLogFood={onOpenLogger}
+          />
 
           {/* BMI Scale Bar Card highlighting user's exact position */}
           <section className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 space-y-4">

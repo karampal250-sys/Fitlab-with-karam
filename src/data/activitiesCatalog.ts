@@ -214,7 +214,74 @@ export function deriveMealTimesFromWakeUp(wakeUpTime: string): {
   };
 }
 
-export function buildDailySchedule(reminders: RemindersConfig, waterGoalMl: number): ScheduleSlot[] {
+export const DEFAULT_WORKOUT_REMINDERS = {
+  plannedWorkoutTime: '18:00',
+  workoutDurationMin: 45,
+  dayWorkoutTimes: {} as Record<string, string>,
+  preWorkoutEnabled: true,
+  preWorkoutOffsetMin: 45,
+  preWorkoutSnackNote: 'Banana + Black Coffee or Soaked Almonds',
+  postWorkoutEnabled: true,
+  postWorkoutOffsetMin: 30,
+  postWorkoutSnackNote: 'Whey / Paneer / Boiled Eggs + Fruit',
+};
+
+const WEEKDAY_NAMES_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEKDAY_NAMES_HI = ['रविवार', 'सोमवार', 'मंगलवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार'];
+
+export function computeWorkoutSnackTriggerTimes(params: {
+  plannedWorkoutTime: string;
+  workoutDurationMin: number;
+  preWorkoutOffsetMin: number;
+  postWorkoutOffsetMin: number;
+}): {
+  workoutStart: string;
+  workoutEnd: string;
+  preWorkoutTime: string;
+  postWorkoutTime: string;
+} {
+  const startMin = parseTimeToMinutes(params.plannedWorkoutTime || '18:00', 18 * 60);
+  const duration = Math.max(10, Math.min(240, Math.round(params.workoutDurationMin || 45)));
+  const preOffset = Math.max(5, Math.min(180, Math.round(params.preWorkoutOffsetMin || 45)));
+  const postOffset = Math.max(5, Math.min(180, Math.round(params.postWorkoutOffsetMin || 30)));
+
+  return {
+    workoutStart: formatMinutesToHHMM(startMin),
+    workoutEnd: formatMinutesToHHMM(startMin + duration),
+    preWorkoutTime: formatMinutesToHHMM(startMin - preOffset),
+    postWorkoutTime: formatMinutesToHHMM(startMin + duration + postOffset),
+  };
+}
+
+export function resolveEffectiveWorkoutTime(reminders: RemindersConfig, now = new Date()): string {
+  const wr = reminders.workoutReminders;
+  if (!wr) return '';
+  const overrides = wr.dayWorkoutTimes || {};
+  const dow = now.getDay();
+  const todayEn = WEEKDAY_NAMES_EN[dow].toLowerCase();
+  const todayHi = WEEKDAY_NAMES_HI[dow];
+  const dayIndex = dow === 0 ? 7 : dow; // Monday = 1 .. Sunday = 7
+
+  const matchingKey = Object.keys(overrides).find((key) => {
+    const k = key.trim().toLowerCase();
+    return (
+      k === todayEn ||
+      k.includes(todayEn) ||
+      todayEn.startsWith(k) ||
+      key.includes(todayHi) ||
+      new RegExp(`\\bday\\s*${dayIndex}\\b`, 'i').test(key) ||
+      key.includes(`दिन ${dayIndex}`)
+    );
+  });
+  const candidate = matchingKey ? overrides[matchingKey] : wr.plannedWorkoutTime;
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(candidate || '') ? candidate : wr.plannedWorkoutTime || '18:00';
+}
+
+export function buildDailySchedule(
+  reminders: RemindersConfig,
+  waterGoalMl: number,
+  now = new Date()
+): ScheduleSlot[] {
   const wakeUpTime = reminders.wakeUpTime || '07:00';
   const wakeMin = parseTimeToMinutes(wakeUpTime, 420);
   const nightShift = isNightShiftWakeTime(wakeUpTime);
@@ -223,7 +290,13 @@ export function buildDailySchedule(reminders: RemindersConfig, waterGoalMl: numb
   const lunchOffset = getOffsetFromWake(wakeUpTime, reminders.lunch, 360);
   const dinnerOffset = getOffsetFromWake(wakeUpTime, reminders.dinner, 780);
   const snackOffset = Math.min(840, Math.max(lunchOffset + 150, Math.round((lunchOffset + dinnerOffset) / 2)));
-  const activityOffset = Math.min(840, snackOffset + 75);
+  const defaultActivityOffset = Math.min(840, snackOffset + 75);
+
+  const wr = reminders.workoutReminders;
+  const effectiveWorkoutTime = wr ? resolveEffectiveWorkoutTime(reminders, now) : '';
+  const activityOffset = effectiveWorkoutTime
+    ? getOffsetFromWake(wakeUpTime, effectiveWorkoutTime, defaultActivityOffset)
+    : defaultActivityOffset;
 
   const breakfastSlotTime = addMinutesFromWake(wakeUpTime, breakfastOffset);
   const lunchSlotTime = addMinutesFromWake(wakeUpTime, lunchOffset);
@@ -360,10 +433,14 @@ export function buildDailySchedule(reminders: RemindersConfig, waterGoalMl: numb
       offsetMin: activityOffset,
       dayOffset: activitySlotTime.dayOffset,
       kind: 'activity',
-      titleEn: 'Sports / Workout Burn',
-      titleHi: 'खेल या व्यायाम का समय',
-      detailEn: '30–45 min sport, brisk walk, or strength session',
-      detailHi: '30–45 मिनट खेल, तेज़ वॉक या वर्कआउट',
+      titleEn: effectiveWorkoutTime ? 'Planned Coach Workout' : 'Sports / Workout Burn',
+      titleHi: effectiveWorkoutTime ? 'नियोजित कोच वर्कआउट' : 'खेल या व्यायाम का समय',
+      detailEn: effectiveWorkoutTime
+        ? `${wr?.workoutDurationMin || 45} min Coach workout scheduled at ${activitySlotTime.time}`
+        : '30–45 min sport, brisk walk, or strength session',
+      detailHi: effectiveWorkoutTime
+        ? `${activitySlotTime.time} बजे ${wr?.workoutDurationMin || 45} मिनट का कोच वर्कआउट`
+        : '30–45 मिनट खेल, तेज़ वॉक या वर्कआउट',
     },
     {
       id: 'meal_dinner',
@@ -378,6 +455,51 @@ export function buildDailySchedule(reminders: RemindersConfig, waterGoalMl: numb
       detailHi: 'सोने से 2 घंटे पहले हल्का व प्रोटीन युक्त भोजन',
     }
   );
+
+  // Add Pre-Workout & Post-Workout Snack triggers anchored to planned Coach workout time
+  if (wr && effectiveWorkoutTime) {
+    const durationMin = Math.max(10, Math.min(240, wr.workoutDurationMin || 45));
+    const preOffsetMin = Math.max(5, Math.min(180, wr.preWorkoutOffsetMin || 45));
+    const postOffsetMin = Math.max(5, Math.min(180, wr.postWorkoutOffsetMin || 30));
+
+    if (wr.preWorkoutEnabled) {
+      const preRawOffset = activityOffset - preOffsetMin;
+      const preWrappedOffset = ((preRawOffset % 1440) + 1440) % 1440;
+      const preTimeObj = addMinutesFromWake(wakeUpTime, preRawOffset);
+      const snackHint = wr.preWorkoutSnackNote?.trim() || 'Banana + black coffee, oats, or soaked almonds';
+      slots.push({
+        id: 'meal_pre_workout',
+        time: preTimeObj.time,
+        offsetMin: preWrappedOffset,
+        dayOffset: preTimeObj.dayOffset,
+        kind: 'meal',
+        mealType: 'snacks',
+        titleEn: 'Pre-Workout Snack',
+        titleHi: 'प्री-वर्कआउट स्नैक',
+        detailEn: `${preOffsetMin}m before ${activitySlotTime.time} workout · ${snackHint}`,
+        detailHi: `${activitySlotTime.time} वर्कआउट से ${preOffsetMin} मि पहले · ${snackHint}`,
+      });
+    }
+
+    if (wr.postWorkoutEnabled) {
+      const postRawOffset = activityOffset + durationMin + postOffsetMin;
+      const postWrappedOffset = ((postRawOffset % 1440) + 1440) % 1440;
+      const postTimeObj = addMinutesFromWake(wakeUpTime, postRawOffset);
+      const snackHint = wr.postWorkoutSnackNote?.trim() || 'Whey shake, paneer bhurji, boiled eggs, or sprouts';
+      slots.push({
+        id: 'meal_post_workout',
+        time: postTimeObj.time,
+        offsetMin: postWrappedOffset,
+        dayOffset: postTimeObj.dayOffset,
+        kind: 'meal',
+        mealType: 'snacks',
+        titleEn: 'Post-Workout Snack',
+        titleHi: 'पोस्ट-वर्कआउट स्नैक',
+        detailEn: `${postOffsetMin}m after ${durationMin}m workout · ${snackHint}`,
+        detailHi: `वर्कआउट के ${postOffsetMin} मि बाद · ${snackHint}`,
+      });
+    }
+  }
 
   return slots.sort((a, b) => a.offsetMin - b.offsetMin);
 }

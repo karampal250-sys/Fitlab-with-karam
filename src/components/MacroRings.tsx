@@ -17,9 +17,22 @@ export const CalorieHeroRing: React.FC<CalorieRingProps> = ({
   labelOver,
   labelTarget = 'Target',
 }) => {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setMounted(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+
   const effectiveTarget = target + burned;
   const remaining = effectiveTarget - eaten;
-  const pct = Math.min(1, Math.max(0, eaten / Math.max(1, effectiveTarget)));
+  const pct = mounted ? Math.min(1, Math.max(0, eaten / Math.max(1, effectiveTarget))) : 0;
   const radius = 64;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - pct);
@@ -45,7 +58,7 @@ export const CalorieHeroRing: React.FC<CalorieRingProps> = ({
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={dashOffset}
-          className={`transition-all duration-500 ease-out ${
+          className={`transition-all duration-1000 ease-out ${
             isOver ? 'stroke-amber-500' : 'stroke-emerald-600 dark:stroke-emerald-500'
           }`}
         />
@@ -84,7 +97,20 @@ export const SmallMacroRing: React.FC<SmallMacroRingProps> = ({
   unit = 'g',
   colorClass,
 }) => {
-  const pct = Math.min(1, Math.max(0, current / Math.max(1, target)));
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setMounted(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+
+  const pct = mounted ? Math.min(1, Math.max(0, current / Math.max(1, target))) : 0;
   const radius = 22;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - pct);
@@ -110,7 +136,7 @@ export const SmallMacroRing: React.FC<SmallMacroRingProps> = ({
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={dashOffset}
-            className={`transition-all duration-500 ease-out ${colorClass}`}
+            className={`transition-all duration-1000 ease-out ${colorClass}`}
           />
         </svg>
         <span className="absolute font-mono-num text-xs font-semibold text-slate-900 dark:text-slate-100">

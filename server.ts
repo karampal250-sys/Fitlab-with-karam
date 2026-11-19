@@ -9,6 +9,7 @@ import { INDIAN_AND_GLOBAL_FOODS } from './src/data/indianFoods.ts';
 import type { FoodItem, Language } from './src/types/fitplate.ts';
 import {
   mapFoodLocalNames,
+  normalizeCategoryFilter,
   resolveLookupFoodItem,
   searchFoodsWithPriority,
 } from './src/utils/foodSearch.ts';
@@ -198,21 +199,24 @@ async function startServer() {
     res.json({ ok: true, service: 'Fit-Plat with Karam API' });
   });
 
-  // Search prioritized Indian+Global DB first, then supplement & deduplicate with Open Food Facts live API
+  // Search prioritized Indian+Global DB first with category filtering, then supplement & deduplicate with Open Food Facts live API
   app.get('/api/foods/search', async (req, res) => {
     const query = String(req.query.q || '').trim();
     const language: Language = req.query.lang === 'hi' ? 'hi' : 'en';
+    const category = normalizeCategoryFilter(String(req.query.category || 'all'));
 
     const localMatches = searchFoodsWithPriority({
       query,
       localFoods: INDIAN_AND_GLOBAL_FOODS,
+      categoryFilter: category,
       language,
       limit: 60,
     });
 
     let remoteMatches: FoodItem[] = [];
-    // Only query Open Food Facts when search has >=2 chars and local catalog needs supplemental global/packaged hits
-    if (query.length >= 2 && localMatches.length < 15) {
+    // Only query Open Food Facts when browsing 'all' or 'packaged' with >=2 chars and <15 local hits
+    const allowRemoteSupplement = category === 'all' || category === 'packaged';
+    if (allowRemoteSupplement && query.length >= 2 && localMatches.length < 15) {
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 3500);
@@ -240,6 +244,7 @@ async function startServer() {
       query,
       localFoods: INDIAN_AND_GLOBAL_FOODS,
       remoteFoods: remoteMatches,
+      categoryFilter: category,
       language,
       limit: 60,
     });
@@ -247,6 +252,8 @@ async function startServer() {
     const hasRemoteInResult = combined.some((item) => item.id.startsWith('off_'));
     res.json({
       items: combined,
+      category,
+      total: combined.length,
       source: hasRemoteInResult ? 'hybrid' : 'local',
     });
   });

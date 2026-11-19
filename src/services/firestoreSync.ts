@@ -345,17 +345,26 @@ export async function syncCustomFoodToCloud(uid: string, food: FoodItem): Promis
       name: food.name.slice(0, 120),
       dietType: food.dietType,
       servingUnit: srv.unit.slice(0, 32),
-      servingGrams: Number(srv.grams),
-      calories: Math.round(food.per100g.calories * ratio),
-      protein: Math.round(food.per100g.protein * ratio * 10) / 10,
-      carbs: Math.round(food.per100g.carbs * ratio * 10) / 10,
-      fat: Math.round(food.per100g.fat * ratio * 10) / 10,
-      fiber: Math.round(food.per100g.fiber * ratio * 10) / 10,
+      servingGrams: Math.min(5000, Math.max(1, Number(srv.grams))),
+      calories: Math.min(5000, Math.max(0, Math.round(food.per100g.calories * ratio))),
+      protein: Math.min(500, Math.max(0, Math.round(food.per100g.protein * ratio * 10) / 10)),
+      carbs: Math.min(500, Math.max(0, Math.round(food.per100g.carbs * ratio * 10) / 10)),
+      fat: Math.min(500, Math.max(0, Math.round(food.per100g.fat * ratio * 10) / 10)),
+      fiber: Math.min(200, Math.max(0, Math.round(food.per100g.fiber * ratio * 10) / 10)),
       isRecipe: Boolean(food.isRecipe),
       createdAt: serverTimestamp(),
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function deleteCustomFoodFromCloud(uid: string, foodId: string): Promise<void> {
+  const path = `users/${uid}/customFoods/${foodId}`;
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'customFoods', foodId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 
