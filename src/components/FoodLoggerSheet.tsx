@@ -268,6 +268,52 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     }
   };
 
+  const resizeImageFileToDataUrl = (file: File, maxDim = 768): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth || img.width;
+          const h = img.naturalHeight || img.height;
+          if (!w || !h) {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Empty image dimensions'));
+            return;
+          }
+          const scale = Math.min(1, maxDim / Math.max(w, h));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Canvas context unavailable'));
+            return;
+          }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const jpegUrl = canvas.toDataURL('image/jpeg', 0.74);
+          URL.revokeObjectURL(objectUrl);
+          resolve(jpegUrl);
+        } catch (err) {
+          URL.revokeObjectURL(objectUrl);
+          reject(err);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Failed to read image file'));
+        reader.onload = async () => {
+          resolve(await resizeDataUrlIfNeeded(String(reader.result)));
+        };
+        reader.readAsDataURL(file);
+      };
+      img.src = objectUrl;
+    });
+
   const processPhotoFile = (file: File, autoAnalyzeOnSelect = true) => {
     if (!file.type.startsWith('image/') && !/\.(jpg|jpeg|png|webp|heic|heif|avif|bmp|gif)$/i.test(file.name)) {
       setPhotoError(
@@ -280,23 +326,21 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       setActiveTab('photo');
       setPhotoLoading(true);
     }
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setPhotoLoading(false);
-      setPhotoError(isHi ? 'फ़ोटो पढ़ने में त्रुटि हुई। कृपया दूसरी फ़ोटो चुनें।' : 'Could not read selected image file.');
-    };
-    reader.onload = async () => {
-      const resized = await resizeDataUrlIfNeeded(String(reader.result));
-      setPhotoPreview(resized);
-      setDetectedItems([]);
-      setDishSummary('');
-      setPhotoError(null);
-      setLoggedAllDone(false);
-      if (autoAnalyzeOnSelect) {
-        void analyzeFoodWithAi(resized);
-      }
-    };
-    reader.readAsDataURL(file);
+    resizeImageFileToDataUrl(file)
+      .then((resized) => {
+        setPhotoPreview(resized);
+        setDetectedItems([]);
+        setDishSummary('');
+        setPhotoError(null);
+        setLoggedAllDone(false);
+        if (autoAnalyzeOnSelect) {
+          void analyzeFoodWithAi(resized);
+        }
+      })
+      .catch(() => {
+        setPhotoLoading(false);
+        setPhotoError(isHi ? 'फ़ोटो पढ़ने में त्रुटि हुई। कृपया दूसरी फ़ोटो चुनें।' : 'Could not read selected image file.');
+      });
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, autoAnalyzeOnSelect = false) => {
@@ -347,19 +391,28 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     setPhotoError(null);
     setLoggedAllDone(false);
     try {
-      const { ok, status, data } = await safeFetchJson<{
-        dishSummary?: string;
-        items?: AiDetectedFood[];
-        error?: string;
-      }>(apiUrl('/api/ai/recognize-food'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: activePhoto,
-          imageMimeType: detectedImgMime,
-          language,
-        }),
-      });
+      const requestOnce = () =>
+        safeFetchJson<{
+          dishSummary?: string;
+          items?: AiDetectedFood[];
+          error?: string;
+        }>(apiUrl('/api/ai/recognize-food'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: activePhoto,
+            imageMimeType: detectedImgMime,
+            language,
+          }),
+        });
+
+      let result = await requestOnce();
+      if (!result.ok && (result.status === 502 || result.status === 503 || result.status === 504 || !result.data)) {
+        await new Promise((r) => setTimeout(r, 450));
+        result = await requestOnce();
+      }
+
+      const { ok, status, data, errorText } = result;
       if (!ok || !data) {
         const fallbackMsg =
           status === 413
@@ -367,8 +420,8 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
               ? 'फ़ोटो का साइज बहुत बड़ा है। कृपया छोटी या क्रॉप की गई फ़ोटो अपलोड करें।'
               : 'Image file is too large. Please upload a smaller or cropped photo.'
             : isHi
-              ? 'फ़ोटो से पोषण गणना अभी उपलब्ध नहीं है। कृपया दोबारा प्रयास करें या मैनुअल फ़ूड से जोड़ें।'
-              : 'Could not calculate nutrition from this image right now. Please try again or use Manual Food entry.';
+              ? `फ़ोटो से पोषण गणना नहीं हो सकी (${errorText || `HTTP ${status}`})। कृपया पुनः प्रयास करें।`
+              : `Could not calculate nutrition from this image (${errorText || `HTTP ${status}`}). Please try again.`;
         setPhotoError(data?.error || fallbackMsg);
       } else {
         const items = data.items || [];

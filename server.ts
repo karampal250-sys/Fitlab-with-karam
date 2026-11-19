@@ -819,6 +819,15 @@ Reply in ${context.language === 'hi' ? 'Hindi (Devanagari)' : 'English'}.`,
     }
   });
 
+  app.use('/api', (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const status =
+      typeof err === 'object' && err !== null && 'status' in err && typeof (err as { status?: unknown }).status === 'number'
+        ? (err as { status: number }).status
+        : 500;
+    const message = parseGeminiErrorMessage(err) || 'API request failed.';
+    res.status(status).json({ error: message });
+  });
+
   // Vite middleware in dev / static dist in production
   if (process.env.NODE_ENV !== 'production') {
     const hmrDisabled = process.env.DISABLE_HMR === 'true' || Boolean(process.env.K_SERVICE);

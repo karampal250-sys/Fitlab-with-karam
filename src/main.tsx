@@ -8,7 +8,13 @@ const isNativeCapacitor =
   Boolean((window as unknown as {Capacitor?: {isNativePlatform?: () => boolean}}).Capacitor?.isNativePlatform?.());
 
 if (!isNativeCapacitor && 'serviceWorker' in navigator) {
-  registerSW({immediate: true});
+  if (import.meta.env.DEV) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((r) => r.unregister());
+    });
+  } else {
+    registerSW({immediate: true});
+  }
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
