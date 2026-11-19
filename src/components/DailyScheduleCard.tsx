@@ -267,6 +267,8 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
               onChange={(e) => onUpdateReminders({ ...reminders, waterIntervalMin: Number(e.target.value) })}
               className="w-full min-h-[38px] px-2 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15]"
             >
+              <option value={30}>30 min</option>
+              <option value={45}>45 min</option>
               <option value={60}>60 min</option>
               <option value={90}>90 min</option>
               <option value={120}>120 min</option>

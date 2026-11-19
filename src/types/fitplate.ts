@@ -88,6 +88,7 @@ export interface RemindersConfig {
   waterIntervalMin: number;
   enabled: boolean;
   alarmsEnabled?: boolean;
+  waterAlarmsEnabled?: boolean;
   soundEnabled?: boolean;
   workoutReminders?: WorkoutSnackTriggersConfig;
 }

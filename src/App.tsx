@@ -8,7 +8,6 @@ import {
   Download,
   Globe,
   Home,
-  Image as ImageIcon,
   LogIn,
   LogOut,
   Menu,
@@ -59,7 +58,6 @@ import {
   syncActivityLogToCloud,
   syncCoachPlanToCloud,
   syncCustomFoodToCloud,
-  deleteCustomFoodFromCloud,
   syncDailyMetricToCloud,
   syncDailyScheduleToCloud,
   syncFoodLogToCloud,
@@ -115,6 +113,7 @@ const DEFAULT_REMINDERS: RemindersConfig = {
   waterIntervalMin: 90,
   enabled: true,
   alarmsEnabled: true,
+  waterAlarmsEnabled: true,
   soundEnabled: true,
   workoutReminders: { ...DEFAULT_WORKOUT_REMINDERS },
 };
@@ -162,7 +161,6 @@ export default function App() {
 
   const [loggerModalMeal, setLoggerModalMeal] = useState<MealType | null>(null);
   const [loggerInitialTab, setLoggerInitialTab] = useState<LoggerTab>('search');
-  const [loggerInitialPhoto, setLoggerInitialPhoto] = useState<File | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeAlarm, setActiveAlarm] = useState<{ slot: ScheduleSlot; isTest?: boolean } | null>(null);
   const [snoozedSlots, setSnoozedSlots] = useState<Record<string, string>>({});
@@ -472,9 +470,8 @@ export default function App() {
     }
   };
 
-  const openFoodLogger = (meal: MealType, tab: LoggerTab = 'search', photoFile: File | null = null) => {
+  const openFoodLogger = (meal: MealType, tab: LoggerTab = 'search') => {
     setLoggerInitialTab(tab);
-    setLoggerInitialPhoto(photoFile);
     setLoggerModalMeal(meal);
   };
 
@@ -492,7 +489,6 @@ export default function App() {
     setRecentFoodIds((prev) => [entry.foodId, ...prev.filter((id) => id !== entry.foodId)].slice(0, 15));
     if (!keepOpen) {
       setLoggerModalMeal(null);
-      setLoggerInitialPhoto(null);
     }
     showToast(`${entry.foodName} · ${entry.calories} kcal`);
     if (firebaseUser) {
@@ -587,18 +583,23 @@ export default function App() {
 
   const handleEnableAlarms = async () => {
     const perm = await requestAlarmPermission();
-    setReminders((prev) => ({ ...prev, enabled: true, alarmsEnabled: true }));
+    setReminders((prev) => ({
+      ...prev,
+      enabled: true,
+      alarmsEnabled: true,
+      waterAlarmsEnabled: true,
+    }));
     if (reminders.soundEnabled !== false) {
       playAlarmChime('water');
     }
     showToast(
       perm === 'granted'
         ? language === 'hi'
-          ? 'शेड्यूल अलार्म और नोटिफिकेशन चालू हो गए'
-          : 'Schedule alarms & notifications enabled'
+          ? 'पानी और शेड्यूल अलार्म चालू हो गए'
+          : 'Water & schedule alarms enabled'
         : language === 'hi'
-        ? 'इन-ऐप अलार्म चालू हो गए'
-        : 'In-app schedule alarms enabled'
+        ? 'इन-ऐप पानी और शेड्यूल अलार्म चालू हो गए'
+        : 'In-app water & schedule alarms enabled'
     );
   };
 
@@ -615,6 +616,23 @@ export default function App() {
         : `Fit-Plat with Karam Alarm: ${sample.titleEn}`,
       language === 'hi' ? sample.detailHi : sample.detailEn,
       `test_${sample.id}`
+    );
+    setActiveAlarm({ slot: sample, isTest: true });
+  };
+
+  const handleTestWaterAlarm = () => {
+    const waterSlots = buildDailySchedule(reminders, activeMetrics.waterGoalMl, new Date()).filter(
+      (s) => s.kind === 'water'
+    );
+    const sample = waterSlots.find((s) => !activeCompletedSlotIds.includes(s.id)) || waterSlots[0];
+    if (!sample) return;
+    if (reminders.soundEnabled !== false) {
+      playAlarmChime('water');
+    }
+    triggerBrowserNotification(
+      language === 'hi' ? `पानी पीने का अलार्म: ${sample.titleHi}` : `Drink Water Alarm: ${sample.titleEn}`,
+      language === 'hi' ? sample.detailHi : sample.detailEn,
+      `test_water_${sample.id}_${Date.now()}`
     );
     setActiveAlarm({ slot: sample, isTest: true });
   };
@@ -663,11 +681,13 @@ export default function App() {
     const checkAlarms = () => {
       const now = new Date();
       const nowHHMM = getCurrentHHMM(now);
-      const todayKey = now.toISOString().slice(0, 10);
+      const todayKey = todayIso();
+      const todayCompletedIds = dailySchedulesMap[todayKey]?.completedSlotIds || [];
       const slots = buildDailySchedule(reminders, activeMetrics.waterGoalMl, now);
 
       for (const slot of slots) {
-        if (activeCompletedSlotIds.includes(slot.id)) continue;
+        if (slot.kind === 'water' && reminders.waterAlarmsEnabled === false) continue;
+        if (todayCompletedIds.includes(slot.id)) continue;
 
         const snoozedHHMM = snoozedSlots[slot.id];
         const dueBySchedule = slot.time === nowHHMM;
@@ -692,7 +712,11 @@ export default function App() {
         }
         triggerBrowserNotification(
           language === 'hi'
-            ? `Fit-Plat with Karam अलार्म: ${slot.titleHi}`
+            ? slot.kind === 'water'
+              ? `पानी पीने का अलार्म: ${slot.titleHi}`
+              : `Fit-Plat with Karam अलार्म: ${slot.titleHi}`
+            : slot.kind === 'water'
+            ? `Drink Water Alarm: ${slot.titleEn}`
             : `Fit-Plat with Karam Alarm: ${slot.titleEn}`,
           language === 'hi' ? slot.detailHi : slot.detailEn,
           fireKey
@@ -705,7 +729,7 @@ export default function App() {
     checkAlarms();
     const timer = setInterval(checkAlarms, 10_000);
     return () => clearInterval(timer);
-  }, [hydrated, profile, reminders, activeMetrics.waterGoalMl, activeCompletedSlotIds, snoozedSlots, language]);
+  }, [hydrated, profile, reminders, activeMetrics.waterGoalMl, dailySchedulesMap, snoozedSlots, language]);
 
   const handleToggleFavorite = (food: FoodItem) => {
     const exists = favoriteIds.includes(food.id);
@@ -724,17 +748,9 @@ export default function App() {
     }
     showToast(
       language === 'hi'
-        ? `${food.name} कस्टम रेसिपी में सहेजा गया`
-        : `Saved "${food.name}" to Custom Recipes`
+        ? `"${food.name}" सेव किया गया`
+        : `Saved "${food.name}" for quick logging`
     );
-  };
-
-  const handleDeleteCustomFood = (foodId: string) => {
-    setCustomFoods((prev) => prev.filter((f) => f.id !== foodId));
-    if (firebaseUser) {
-      deleteCustomFoodFromCloud(currentUid, foodId).catch(() => {});
-    }
-    showToast(language === 'hi' ? 'रेसिपी हटाई गई' : 'Custom recipe removed');
   };
 
   const handleAddProgressEntry = (entry: ProgressEntry) => {
@@ -949,26 +965,9 @@ export default function App() {
               </span>
               <span className="hidden sm:inline">{t(language, 'profile')}</span>
             </button>
-            <label
-              title={language === 'hi' ? 'फ़ोटो से फास्ट ट्रैक' : 'Fast Track Food from Photo'}
-              className="min-h-[38px] px-2.5 sm:px-3 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-            >
-              <ImageIcon className="w-4 h-4" />
-              <span className="hidden sm:inline">{language === 'hi' ? 'फ़ोटो ट्रैक' : 'Photo Track'}</span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) openFoodLogger(getDefaultMealForNow(), 'photo', file);
-                  e.target.value = '';
-                }}
-                className="sr-only"
-              />
-            </label>
             <button
               type="button"
-              onClick={() => openFoodLogger(getDefaultMealForNow(), 'search', null)}
+              onClick={() => openFoodLogger(getDefaultMealForNow(), 'search')}
               className="min-h-[38px] px-2.5 sm:px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -1002,8 +1001,7 @@ export default function App() {
             reminders={reminders}
             onUpdateMetrics={handleUpdateMetrics}
             onDeleteLog={handleDeleteFoodLog}
-            onOpenLogger={(meal, tab) => openFoodLogger(meal, tab || 'search', null)}
-            onFastPhotoUpload={(meal, file) => openFoodLogger(meal, 'photo', file)}
+            onOpenLogger={(meal) => openFoodLogger(meal, 'search')}
             onQuickLogSuggestion={(idea) =>
               handleAddFoodLog({
                 id: `log_${Date.now()}`,
@@ -1029,6 +1027,7 @@ export default function App() {
             onDeleteActivity={handleDeleteActivity}
             onToggleScheduleSlot={handleToggleScheduleSlot}
             onTestAlarm={handleTestAlarm}
+            onTestWaterAlarm={handleTestWaterAlarm}
             onEnableAlarms={handleEnableAlarms}
           />
         )}
@@ -1068,13 +1067,10 @@ export default function App() {
             mealPlan={mealPlan}
             workoutPlan={workoutPlan}
             chatMessages={chatMessages}
-            customFoods={customFoods}
             reminders={reminders}
             onUpdateReminders={handleUpdateReminders}
             onEnableAlarms={handleEnableAlarms}
             onTestWorkoutSnackAlarm={handleTestWorkoutSnackAlarm}
-            onSaveCustomFood={handleSaveCustomFood}
-            onDeleteCustomFood={handleDeleteCustomFood}
             onSaveMealPlan={(plan) => {
               setMealPlan(plan);
               if (firebaseUser) syncCoachPlanToCloud(currentUid, 'meal_plan', plan.title, plan).catch(() => {});
@@ -1090,17 +1086,17 @@ export default function App() {
                 uid: currentUid,
                 date: activeDate,
                 mealType: m.mealType,
-                foodId: m.foodId || `coach_${Date.now()}`,
+                foodId: `coach_${Date.now()}`,
                 foodName: m.title,
-                servingUnit: (m.servingUnit || m.portion).slice(0, 32),
-                servingQty: m.servingQty ?? 1,
-                grams: m.grams ?? 200,
+                servingUnit: m.portion.slice(0, 32),
+                servingQty: 1,
+                grams: 200,
                 calories: m.calories,
                 protein: m.protein,
                 carbs: m.carbs,
                 fat: m.fat,
                 fiber: m.fiber,
-                source: m.source || 'coach',
+                source: 'coach',
                 createdAt: new Date().toISOString(),
               })
             }
@@ -1137,7 +1133,6 @@ export default function App() {
               activeDate={activeDate}
               initialMealType={loggerModalMeal}
               initialTab={loggerInitialTab}
-              initialPhotoFile={loggerInitialPhoto}
               uid={currentUid}
               customFoods={customFoods}
               favoriteIds={favoriteIds}
@@ -1145,10 +1140,7 @@ export default function App() {
               onToggleFavorite={handleToggleFavorite}
               onSaveCustomFood={handleSaveCustomFood}
               onAddLog={handleAddFoodLog}
-              onClose={() => {
-                setLoggerModalMeal(null);
-                setLoggerInitialPhoto(null);
-              }}
+              onClose={() => setLoggerModalMeal(null)}
             />
           </div>
         </div>

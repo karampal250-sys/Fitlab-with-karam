@@ -318,7 +318,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         {showBlueprint && (
           <div className="px-5 pb-5 pt-2 border-t border-slate-100 dark:border-emerald-950 text-xs text-slate-600 dark:text-slate-300 space-y-3 leading-relaxed">
             <div>
-              <strong className="text-slate-900 dark:text-white">Screens:</strong> 1. Onboarding & Goal Calculator · 2. Daily Dashboard · 3. Food Search / Barcode / AI Photo Logger · 4. Custom Food & Recipe Builder · 5. Progress & Weekly Report · 6. AI Coach (7-Day Meal Plan, Home/Gym Workouts, Chat) · 7. Settings & Privacy.
+              <strong className="text-slate-900 dark:text-white">Screens:</strong> 1. Onboarding & Goal Calculator · 2. Daily Dashboard · 3. Food Search / Barcode / AI Photo Logger · 4. Quick Manual Food Entry · 5. Progress & Weekly Report · 6. AI Coach (7-Day Meal Plan, Home/Gym Workouts, Chat) · 7. Settings & Privacy.
             </div>
             <div>
               <strong className="text-slate-900 dark:text-white">Firestore Collections:</strong>{' '}

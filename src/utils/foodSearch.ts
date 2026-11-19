@@ -55,6 +55,8 @@ const SYNONYM_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\b(burgerking|bk)\b/g, 'burger king'],
   [/\b(panner|panneer)\b/g, 'paneer'],
   [/\b(frankie|franky|kathi)\b/g, 'roll'],
+  [/\b(dalia|daliyaa|broken wheat)\b/g, 'daliya'],
+  [/\b(nkeen|namkin|nmkeen|namkeen)\b/g, 'namkeen'],
 ];
 
 export function canonicalizeFoodTerms(input: string): string {
@@ -251,6 +253,16 @@ export const FOOD_LOCAL_ALIASES: Record<string, string[]> = {
   soya_chaap_roll: ['soya roll', 'soyabean roll', 'chaap roll'],
   cheese_corn_roll: ['cheese corn roll', 'corn cheese roll'],
   mutton_seekh_roll: ['mutton roll', 'seekh kabab roll'],
+
+  plain_wheat_daliya: ['daliya', 'dalia', 'plain daliya', 'sada daliya', 'boiled daliya', 'broken wheat porridge'],
+  milk_daliya: ['milk daliya', 'doodh daliya', 'dudh daliya', 'sweet milk daliya', 'daliya milk', 'meetha doodh daliya'],
+  mix_veg_daliya: ['mix veg daliya', 'mixveg daliya', 'mixed veg daliya', 'vegetable daliya', 'veg daliya'],
+  namkeen_daliya: ['namkeen daliya', 'nkeen daliya', 'namkin daliya', 'masala daliya', 'tadka daliya', 'savory daliya'],
+  moong_dal_daliya_khichdi: ['dal daliya', 'daliya khichdi', 'moong dal daliya', 'khichdi daliya'],
+  meetha_gur_daliya: ['meetha daliya', 'gur daliya', 'lapsi', 'sweet daliya'],
+  dry_fruit_milk_daliya: ['dry fruit daliya', 'badam daliya', 'kaju badam milk daliya'],
+  oats_daliya_mix: ['oats daliya', 'oats dalia', 'oats mix daliya'],
+  palak_paneer_daliya: ['paneer daliya', 'palak daliya', 'protein daliya'],
 };
 
 /**
@@ -301,6 +313,10 @@ export const LOCAL_QUERY_SYNONYMS: Record<string, string> = {
   frankie: 'roll',
   kathi: 'roll',
   panner: 'paneer',
+  dalia: 'daliya',
+  nkeen: 'namkeen',
+  namkin: 'namkeen',
+  lapsi: 'meetha gur daliya',
 };
 
 /**
@@ -346,6 +362,7 @@ const LOCAL_HI_MAPPINGS: Array<[RegExp, string]> = [
   [/ladoo|laddu/i, 'लड्डू'],
   [/gulab jamun/i, 'गुलाब जामुन'],
   [/dal|lentil/i, 'दाल'],
+  [/daliya|dalia/i, 'दलिया'],
 ];
 
 export function mapFoodLocalNames(food: FoodItem): FoodItem {

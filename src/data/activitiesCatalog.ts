@@ -304,23 +304,25 @@ export function buildDailySchedule(
   const activitySlotTime = addMinutesFromWake(wakeUpTime, activityOffset);
   const dinnerSlotTime = addMinutesFromWake(wakeUpTime, dinnerOffset);
 
-  const interval = Math.max(60, Math.min(180, reminders.waterIntervalMin || 90));
+  const interval = Math.max(30, Math.min(180, reminders.waterIntervalMin || 90));
+  const maxWaterEndOffset = Math.min(930, Math.max(840, dinnerOffset + 75));
   const waterOffsets: number[] = [0]; // Always start with wake-up hydration at +0m
   const mealOffsets = [breakfastOffset, lunchOffset, dinnerOffset];
 
-  for (let off = interval; off <= 870 && waterOffsets.length < 8; off += interval) {
+  for (let off = interval; off <= maxWaterEndOffset && waterOffsets.length < 16; off += interval) {
     // Avoid overlapping right on top of breakfast/lunch/dinner; nudge 25m earlier before main meal
     const nearMeal = mealOffsets.find((mo) => Math.abs(mo - off) < 25);
-    const candidate = nearMeal !== undefined ? Math.max(30, nearMeal - 25) : off;
-    if (!waterOffsets.some((existing) => Math.abs(existing - candidate) < 35)) {
+    const candidate = nearMeal !== undefined ? Math.max(20, nearMeal - 25) : off;
+    const minGap = interval <= 45 ? 20 : 35;
+    if (!waterOffsets.some((existing) => Math.abs(existing - candidate) < minGap)) {
       waterOffsets.push(candidate);
     }
   }
-  if (waterOffsets[waterOffsets.length - 1] < 810 && waterOffsets.length < 8) {
-    waterOffsets.push(Math.min(870, dinnerOffset + 75));
+  if (waterOffsets[waterOffsets.length - 1] < maxWaterEndOffset - 60 && waterOffsets.length < 16) {
+    waterOffsets.push(maxWaterEndOffset);
   }
 
-  const glassMl = Math.max(200, Math.round(waterGoalMl / Math.max(1, waterOffsets.length) / 50) * 50);
+  const glassMl = Math.max(150, Math.round(waterGoalMl / Math.max(1, waterOffsets.length) / 50) * 50);
 
   const waterLabels = [
     {
@@ -336,8 +338,8 @@ export function buildDailySchedule(
       detailHi: `ऊर्जा और ताज़गी के लिए ${glassMl} मिली पानी पिएं`,
     },
     {
-      en: 'Mid-Day Water Break',
-      hi: 'मिड-डे पानी ब्रेक',
+      en: 'Mid-Morning Water Break',
+      hi: 'सुबह का पानी ब्रेक',
       detailEn: `Drink ${glassMl} ml water between meals`,
       detailHi: `भोजन के बीच ${glassMl} मिली पानी पिएं`,
     },
@@ -348,7 +350,13 @@ export function buildDailySchedule(
       detailHi: `खाने से 25–30 मिनट पहले ${glassMl} मिली पानी`,
     },
     {
-      en: 'Mid-Shift Hydration',
+      en: 'Mid-Day Water Break',
+      hi: 'दोपहर पानी ब्रेक',
+      detailEn: `Drink ${glassMl} ml water to stay energized`,
+      detailHi: `दिन में ताज़गी के लिए ${glassMl} मिली पानी पिएं`,
+    },
+    {
+      en: 'Afternoon Hydration',
       hi: 'दोपहर/शिफ्ट हाइड्रेशन',
       detailEn: `Drink ${glassMl} ml water to prevent fatigue`,
       detailHi: `थकान से बचने के लिए ${glassMl} मिली पानी पिएं`,
@@ -358,6 +366,12 @@ export function buildDailySchedule(
       hi: 'व्यायाम से पहले पानी',
       detailEn: `Drink ${glassMl} ml water before activity`,
       detailHi: `गतिविधि से पहले ${glassMl} मिली पानी पिएं`,
+    },
+    {
+      en: 'Evening Hydration',
+      hi: 'शाम का पानी ब्रेक',
+      detailEn: `Drink ${glassMl} ml water to keep hydration on track`,
+      detailHi: `शाम को नियमित ${glassMl} मिली पानी पिएं`,
     },
     {
       en: 'Pre-Dinner Water',
@@ -375,7 +389,12 @@ export function buildDailySchedule(
 
   const slots: ScheduleSlot[] = waterOffsets.map((off, idx) => {
     const t = addMinutesFromWake(wakeUpTime, off);
-    const lbl = waterLabels[Math.min(idx, waterLabels.length - 1)];
+    const lbl =
+      idx === 0
+        ? waterLabels[0]
+        : idx === waterOffsets.length - 1
+        ? waterLabels[waterLabels.length - 1]
+        : waterLabels[1 + ((idx - 1) % (waterLabels.length - 2))];
     return {
       id: idx === 0 ? 'water_wake' : `water_${idx}`,
       time: t.time,
@@ -504,3 +523,10 @@ export function buildDailySchedule(
   return slots.sort((a, b) => a.offsetMin - b.offsetMin);
 }
 
+export function getWaterScheduleSlots(
+  reminders: RemindersConfig,
+  waterGoalMl: number,
+  now = new Date()
+): ScheduleSlot[] {
+  return buildDailySchedule(reminders, waterGoalMl, now).filter((s) => s.kind === 'water');
+}

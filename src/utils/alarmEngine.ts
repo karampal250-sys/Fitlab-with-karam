@@ -27,7 +27,7 @@ export function playAlarmChime(kind: ScheduleSlot['kind']): void {
   if (!ctx) return;
 
   const patterns: Record<ScheduleSlot['kind'], number[]> = {
-    water: [587.33, 783.99, 987.77], // D5 - G5 - B5 bright droplet chime
+    water: [587.33, 783.99, 987.77, 783.99, 987.77, 1174.66], // Double droplet chime
     meal: [523.25, 659.25, 783.99, 1046.5], // C5 - E5 - G5 - C6 warm dining bell
     activity: [440, 554.37, 659.25, 880], // A4 - C#5 - E5 - A5 energizing chime
   };
