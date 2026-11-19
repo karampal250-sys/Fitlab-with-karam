@@ -669,7 +669,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               if (file) onFastPhotoUpload(slot, file);
                               e.target.value = '';
                             }}
-                            className="hidden"
+                            className="sr-only"
                           />
                         </label>
                       ) : (

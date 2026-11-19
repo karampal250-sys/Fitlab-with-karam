@@ -17,7 +17,7 @@ export interface FoodItem {
   id: string;
   name: string;
   nameHi: string;
-  category: 'bread_rice' | 'dal_curry' | 'breakfast' | 'snack_street' | 'beverage' | 'fruit_nut' | 'protein_dairy' | 'sweets' | 'indo_chinese' | 'pasta' | 'packaged' | 'custom';
+  category: 'bread_rice' | 'dal_curry' | 'raita_salad' | 'breakfast' | 'snack_street' | 'beverage' | 'fruit_nut' | 'protein_dairy' | 'sweets' | 'indo_chinese' | 'sauces_dips' | 'pasta' | 'packaged' | 'custom';
   dietType: DietType;
   barcode?: string;
   allergens?: string[];

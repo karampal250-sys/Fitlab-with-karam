@@ -16,6 +16,11 @@ import {
 } from 'lucide-react';
 import type { DietType, FoodItem, FoodLogEntry, Language, MealType } from '../types/fitplate';
 import { computeMacrosForGrams, INDIAN_AND_GLOBAL_FOODS } from '../data/indianFoods';
+import {
+  deduplicateFoods,
+  resolveLookupFoodItem,
+  searchFoodsWithPriority,
+} from '../utils/foodSearch';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 import pohaSampleImg from '../assets/images/fitplate_poha_breakfast_1794826256666.jpg';
@@ -111,7 +116,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [mealType, setMealType] = useState<MealType>(initialMealType);
   const [activeTab, setActiveTab] = useState<LoggerTab>(initialTab || 'search');
   const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<FoodItem[]>(INDIAN_AND_GLOBAL_FOODS);
+  const [remoteSearchResults, setRemoteSearchResults] = useState<FoodItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
@@ -161,7 +166,10 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [recipeIngredients, setRecipeIngredients] = useState<{ food: FoodItem; grams: number }[]>([]);
   const [quickAddedBanner, setQuickAddedBanner] = useState<string | null>(null);
 
-  const allKnownFoods = [...customFoods, ...INDIAN_AND_GLOBAL_FOODS];
+  const allKnownFoods = useMemo(
+    () => deduplicateFoods([...customFoods, ...INDIAN_AND_GLOBAL_FOODS]),
+    [customFoods]
+  );
 
   useEffect(() => {
     setMealType(initialMealType);
@@ -180,44 +188,37 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     }
   }, [initialPhotoFile]);
 
-  // Debounced hybrid search (local Indian DB + Open Food Facts API)
+  // Debounced hybrid search: local Indian+Global DB always responds immediately & ranks first; Open Food Facts supplements & deduplicates cleanly
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) {
-      setSearchResults([...customFoods, ...INDIAN_AND_GLOBAL_FOODS]);
+    if (trimmed.length < 2) {
+      setRemoteSearchResults([]);
+      setIsSearching(false);
       return;
     }
-    const localFirst = allKnownFoods.filter(
-      (f) =>
-        f.name.toLowerCase().includes(trimmed.toLowerCase()) ||
-        f.nameHi.toLowerCase().includes(trimmed.toLowerCase()) ||
-        f.category.toLowerCase().includes(trimmed.toLowerCase())
-    );
-    setSearchResults(localFirst);
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
-      if (trimmed.length < 2) return;
       setIsSearching(true);
       try {
         const { ok, data } = await safeFetchJson<{ items?: FoodItem[] }>(
-          apiUrl(`/api/foods/search?q=${encodeURIComponent(trimmed)}`)
+          apiUrl(`/api/foods/search?q=${encodeURIComponent(trimmed)}&lang=${encodeURIComponent(language)}`)
         );
-        if (ok && data && Array.isArray(data.items)) {
-          const merged = [
-            ...customFoods.filter((f) => f.name.toLowerCase().includes(trimmed.toLowerCase())),
-            ...data.items,
-          ];
-          setSearchResults(merged);
+        if (!cancelled && ok && data && Array.isArray(data.items)) {
+          setRemoteSearchResults(data.items.filter((it) => it.id.startsWith('off_')));
         }
       } catch {
-        // Offline fallback keeps local matches
+        // Offline fallback keeps prioritized local matches
       } finally {
-        setIsSearching(false);
+        if (!cancelled) setIsSearching(false);
       }
     }, 320);
 
-    return () => clearTimeout(timer);
-  }, [query, customFoods.length]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, language]);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -232,37 +233,34 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   }, []);
 
   const lookupBarcode = async (code: string) => {
-    const clean = code.trim();
+    const clean = code.replace(/[^0-9a-zA-Z]/g, '').trim();
     if (!clean) return;
     setBarcodeLoading(true);
     setBarcodeError(null);
+
+    // Prioritize local Indian & Global DB before remote network lookup
+    const localBarcodeHit = allKnownFoods.find((f) => f.barcode === clean);
+    if (localBarcodeHit) {
+      setSelectedFood(resolveLookupFoodItem(localBarcodeHit, INDIAN_AND_GLOBAL_FOODS));
+      setSelectedServingIdx(0);
+      setServingQty(1);
+      setBarcodeLoading(false);
+      return;
+    }
+
     try {
       const { ok, data } = await safeFetchJson<{ item?: FoodItem; error?: string }>(
         apiUrl(`/api/foods/barcode/${encodeURIComponent(clean)}`)
       );
-      if (!ok || !data) {
-        const offlineHit = allKnownFoods.find((f) => f.barcode === clean);
-        if (offlineHit) {
-          setSelectedFood(offlineHit);
-          setSelectedServingIdx(0);
-          setServingQty(1);
-        } else {
-          setBarcodeError(data?.error || (isHi ? 'प्रोडक्ट नहीं मिला।' : 'Product not found.'));
-        }
-      } else if (data.item) {
-        setSelectedFood(data.item);
+      if (!ok || !data || !data.item) {
+        setBarcodeError(data?.error || (isHi ? 'प्रोडक्ट नहीं मिला।' : 'Product not found.'));
+      } else {
+        setSelectedFood(resolveLookupFoodItem(data.item, INDIAN_AND_GLOBAL_FOODS));
         setSelectedServingIdx(0);
         setServingQty(1);
       }
     } catch {
-      const offlineHit = allKnownFoods.find((f) => f.barcode === clean);
-      if (offlineHit) {
-        setSelectedFood(offlineHit);
-        setSelectedServingIdx(0);
-        setServingQty(1);
-      } else {
-        setBarcodeError(isHi ? 'ऑफ़लाइन बारकोड नहीं मिला।' : 'Offline: barcode not in local cache.');
-      }
+      setBarcodeError(isHi ? 'ऑफ़लाइन बारकोड नहीं मिला।' : 'Offline: barcode not in local cache.');
     } finally {
       setBarcodeLoading(false);
     }
@@ -724,48 +722,33 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     setRecipeIngredients([]);
   };
 
-  const favoriteFoods = allKnownFoods.filter((f) => favoriteIds.includes(f.id));
-  const recentFoods = recentFoodIds
-    .map((id) => allKnownFoods.find((f) => f.id === id))
-    .filter((x): x is FoodItem => Boolean(x));
+  const favoriteFoods = useMemo(
+    () => deduplicateFoods(allKnownFoods.filter((f) => favoriteIds.includes(f.id))),
+    [allKnownFoods, favoriteIds]
+  );
+  const recentFoods = useMemo(
+    () =>
+      deduplicateFoods(
+        recentFoodIds
+          .map((id) => allKnownFoods.find((f) => f.id === id))
+          .filter((x): x is FoodItem => Boolean(x))
+      ),
+    [allKnownFoods, recentFoodIds]
+  );
 
-  const alphabetSortedSearch = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const byCategory =
-      categoryFilter === 'all'
-        ? searchResults
-        : categoryFilter === 'dal_recipes'
-        ? searchResults.filter(
-            (f) =>
-              f.category === 'dal_curry' &&
-              /\b(dal|sambhar|rasam|lobia|rajma|chole|khichdi|kadhi)\b/i.test(f.name)
-          )
-        : categoryFilter === 'indian_mains'
-        ? searchResults.filter((f) => f.category === 'bread_rice' || f.category === 'dal_curry')
-        : searchResults.filter((f) => f.category === categoryFilter);
-
-    const base = activeLetter
-      ? byCategory.filter((f) => {
-          const label = (isHi ? f.nameHi : f.name).trim().toLowerCase();
-          return (
-            label.startsWith(activeLetter.toLowerCase()) ||
-            f.name.trim().toLowerCase().startsWith(activeLetter.toLowerCase())
-          );
-        })
-      : byCategory;
-
-    return [...base].sort((a, b) => {
-      const aName = (isHi ? a.nameHi : a.name).trim();
-      const bName = (isHi ? b.nameHi : b.name).trim();
-      if (q) {
-        const aStarts = aName.toLowerCase().startsWith(q) || a.name.toLowerCase().startsWith(q);
-        const bStarts = bName.toLowerCase().startsWith(q) || b.name.toLowerCase().startsWith(q);
-        if (aStarts && !bStarts) return -1;
-        if (!aStarts && bStarts) return 1;
-      }
-      return aName.localeCompare(bName);
-    });
-  }, [searchResults, query, activeLetter, categoryFilter, isHi]);
+  const alphabetSortedSearch = useMemo(
+    () =>
+      searchFoodsWithPriority({
+        query,
+        customFoods,
+        localFoods: INDIAN_AND_GLOBAL_FOODS,
+        remoteFoods: remoteSearchResults,
+        categoryFilter,
+        activeLetter,
+        language,
+      }),
+    [query, customFoods, remoteSearchResults, categoryFilter, activeLetter, language]
+  );
 
   const detectedTotals = useMemo(
     () =>
@@ -993,7 +976,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                 type="file"
                 accept="image/*"
                 onChange={(e) => handlePhotoUpload(e, true)}
-                className="hidden"
+                className="sr-only"
               />
             </label>
           )}
@@ -1111,10 +1094,12 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                   ['dal_recipes', isHi ? 'सभी दाल रेसिपी' : 'Dal Recipes'],
                   ['pasta', isHi ? 'पास्ता व मैकरोनी' : 'Pasta & Macaroni'],
                   ['beverage', isHi ? 'चाय व ड्रिंक्स' : 'Drinks & Tea'],
-                  ['indian_mains', isHi ? 'रोटी, चावल व सब्ज़ी' : 'Roti, Rice & Curries'],
+                  ['indian_mains', isHi ? 'रोटी, नान, चावल व सब्ज़ी' : 'Naan, Rice & Curries'],
+                  ['raita_salad', isHi ? 'रायता व सलाद' : 'Raita & Salad'],
                   ['breakfast', isHi ? 'नाश्ता' : 'Breakfast'],
                   ['sweets', isHi ? 'भारतीय मिठाई' : 'Indian Sweets'],
                   ['indo_chinese', isHi ? 'इंडो-चाइनीज' : 'Indo-Chinese'],
+                  ['sauces_dips', isHi ? 'सॉस व डिप्स' : 'Sauces & Dips'],
                   ['snack_street', isHi ? 'चाट व स्नैक्स' : 'Street Snacks'],
                   ['protein_dairy', isHi ? 'प्रोटीन व डेयरी' : 'Protein & Dairy'],
                   ['fruit_nut', isHi ? 'फल व मेवे' : 'Fruits & Nuts'],
@@ -1338,7 +1323,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                   ? 'घर का खाना, पास्ता, मिठाई, पेय या पैकेट — कैलोरी, प्रोटीन, कार्ब्स, फैट व फाइबर'
                   : 'Meals, Pasta, Drinks, Dry Food or Packets — Calories, Protein, Carbs, Fat & Fiber'}
               </span>
-              <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, true)} className="hidden" />
+              <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, true)} className="sr-only" />
             </label>
 
             {photoPreview && (
@@ -1616,25 +1601,24 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                 />
               </div>
               <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
-                {allKnownFoods
-                  .filter((ing) => {
-                    const q = recipeQuery.trim().toLowerCase();
-                    if (!q) return true;
-                    return ing.name.toLowerCase().includes(q) || ing.nameHi.toLowerCase().includes(q);
-                  })
-                  .slice(0, 16)
-                  .map((ing) => (
-                    <button
-                      key={ing.id}
-                      type="button"
-                      onClick={() =>
-                        setRecipeIngredients((prev) => [...prev, { food: ing, grams: ing.servings[0].grams }])
-                      }
-                      className="min-h-[34px] px-2.5 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] hover:border-emerald-400 text-[11px] font-medium"
-                    >
-                      + {isHi ? ing.nameHi : ing.name}
-                    </button>
-                  ))}
+                {searchFoodsWithPriority({
+                  query: recipeQuery,
+                  customFoods,
+                  localFoods: INDIAN_AND_GLOBAL_FOODS,
+                  language,
+                  limit: 16,
+                }).map((ing) => (
+                  <button
+                    key={ing.id}
+                    type="button"
+                    onClick={() =>
+                      setRecipeIngredients((prev) => [...prev, { food: ing, grams: ing.servings[0].grams }])
+                    }
+                    className="min-h-[34px] px-2.5 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] hover:border-emerald-400 text-[11px] font-medium"
+                  >
+                    + {isHi ? ing.nameHi : ing.name}
+                  </button>
+                ))}
               </div>
               {recipeIngredients.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-emerald-900/50">

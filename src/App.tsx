@@ -906,7 +906,7 @@ export default function App() {
                   if (file) openFoodLogger(getDefaultMealForNow(), 'photo', file);
                   e.target.value = '';
                 }}
-                className="hidden"
+                className="sr-only"
               />
             </label>
             <button

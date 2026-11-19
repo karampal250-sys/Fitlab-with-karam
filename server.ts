@@ -6,7 +6,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { INDIAN_AND_GLOBAL_FOODS } from './src/data/indianFoods.ts';
-import type { FoodItem } from './src/types/fitplate.ts';
+import type { FoodItem, Language } from './src/types/fitplate.ts';
+import {
+  mapFoodLocalNames,
+  resolveLookupFoodItem,
+  searchFoodsWithPriority,
+} from './src/utils/foodSearch.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,7 +146,7 @@ function mapOffProductToFoodItem(p: Record<string, unknown>): FoodItem | null {
   const servingQty = Number(p.serving_quantity) || 100;
   const servingLabel = String(p.serving_size || `${servingQty}g`);
 
-  return {
+  return mapFoodLocalNames({
     id: `off_${code}`,
     name: `${name}${p.brands ? ` (${String(p.brands).split(',')[0].trim()})` : ''}`.slice(0, 100),
     nameHi: name.slice(0, 100),
@@ -169,7 +174,7 @@ function mapOffProductToFoodItem(p: Record<string, unknown>): FoodItem | null {
         grams: 100,
       },
     ],
-  };
+  });
 }
 
 async function startServer() {
@@ -193,26 +198,27 @@ async function startServer() {
     res.json({ ok: true, service: 'Fit-Plat with Karam API' });
   });
 
-  // Search local Indian+Global DB + Open Food Facts live API
+  // Search prioritized Indian+Global DB first, then supplement & deduplicate with Open Food Facts live API
   app.get('/api/foods/search', async (req, res) => {
-    const query = String(req.query.q || '').trim().toLowerCase();
-    const localMatches = query
-      ? INDIAN_AND_GLOBAL_FOODS.filter(
-          (f) =>
-            f.name.toLowerCase().includes(query) ||
-            f.nameHi.toLowerCase().includes(query) ||
-            f.category.toLowerCase().includes(query)
-        )
-      : INDIAN_AND_GLOBAL_FOODS;
+    const query = String(req.query.q || '').trim();
+    const language: Language = req.query.lang === 'hi' ? 'hi' : 'en';
+
+    const localMatches = searchFoodsWithPriority({
+      query,
+      localFoods: INDIAN_AND_GLOBAL_FOODS,
+      language,
+      limit: 60,
+    });
 
     let remoteMatches: FoodItem[] = [];
-    if (query.length >= 2) {
+    // Only query Open Food Facts when search has >=2 chars and local catalog needs supplemental global/packaged hits
+    if (query.length >= 2 && localMatches.length < 15) {
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 3500);
         const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
           query
-        )}&search_simple=1&action=process&json=1&page_size=8&fields=code,product_name,product_name_en,brands,nutriments,serving_size,serving_quantity`;
+        )}&search_simple=1&action=process&json=1&page_size=10&fields=code,product_name,product_name_en,brands,nutriments,serving_size,serving_quantity`;
         const resp = await fetch(url, {
           signal: controller.signal,
           headers: { 'User-Agent': 'FitPlateNutritionApp/1.0' },
@@ -222,20 +228,30 @@ async function startServer() {
           const json = (await resp.json()) as { products?: Record<string, unknown>[] };
           remoteMatches = (json.products || [])
             .map(mapOffProductToFoodItem)
-            .filter((x): x is FoodItem => x !== null);
+            .filter((x): x is FoodItem => x !== null)
+            .map((item) => resolveLookupFoodItem(item, INDIAN_AND_GLOBAL_FOODS));
         }
       } catch {
         // Offline or Open Food Facts timeout — fallback gracefully to local Indian+Global DB
       }
     }
 
+    const combined = searchFoodsWithPriority({
+      query,
+      localFoods: INDIAN_AND_GLOBAL_FOODS,
+      remoteFoods: remoteMatches,
+      language,
+      limit: 60,
+    });
+
+    const hasRemoteInResult = combined.some((item) => item.id.startsWith('off_'));
     res.json({
-      items: [...localMatches, ...remoteMatches].slice(0, 60),
-      source: remoteMatches.length > 0 ? 'hybrid' : 'local',
+      items: combined,
+      source: hasRemoteInResult ? 'hybrid' : 'local',
     });
   });
 
-  // Barcode lookup (Local packaged Indian items + Open Food Facts v2 API)
+  // Barcode lookup (Prioritize Local Indian+Global DB, then Open Food Facts v2 API with local name mapping)
   app.get('/api/foods/barcode/:code', async (req, res) => {
     const code = String(req.params.code || '').replace(/[^0-9a-zA-Z]/g, '');
     if (!code) {
@@ -245,7 +261,7 @@ async function startServer() {
 
     const localMatch = INDIAN_AND_GLOBAL_FOODS.find((f) => f.barcode === code);
     if (localMatch) {
-      res.json({ item: localMatch, source: 'indian_db' });
+      res.json({ item: mapFoodLocalNames(localMatch), source: 'indian_db' });
       return;
     }
 
@@ -265,7 +281,11 @@ async function startServer() {
         if (data.status === 1 && data.product) {
           const mapped = mapOffProductToFoodItem({ ...data.product, code });
           if (mapped) {
-            res.json({ item: mapped, source: 'open_food_facts' });
+            const resolved = resolveLookupFoodItem(mapped, INDIAN_AND_GLOBAL_FOODS);
+            res.json({
+              item: resolved,
+              source: resolved.id.startsWith('off_') ? 'open_food_facts' : 'indian_db',
+            });
             return;
           }
         }
