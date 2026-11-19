@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { GoalType, Language, ProgressEntry } from '../types/fitplate';
 
-type RangeKey = '4w' | '8w' | '12w' | 'all';
+export type WeightChartRangeKey = '1w' | '1m' | '12w' | 'all';
 type SeriesMode = 'weekly' | 'daily';
 
 interface WeeklyWeightChartProps {
@@ -10,6 +10,8 @@ interface WeeklyWeightChartProps {
   targetWeightKg: number;
   goalType: GoalType;
   language: Language;
+  selectedRange?: WeightChartRangeKey;
+  onRangeChange?: (range: WeightChartRangeKey) => void;
   onFocusLogForm?: () => void;
 }
 
@@ -119,32 +121,44 @@ export const WeeklyWeightChart: React.FC<WeeklyWeightChartProps> = ({
   targetWeightKg,
   goalType,
   language,
+  selectedRange,
+  onRangeChange,
   onFocusLogForm,
 }) => {
   const isHi = language === 'hi';
-  const [range, setRange] = useState<RangeKey>('all');
+  const [internalRange, setInternalRange] = useState<WeightChartRangeKey>('1m');
+  const range = selectedRange ?? internalRange;
+  const setRange = (next: WeightChartRangeKey) => {
+    setInternalRange(next);
+    if (onRangeChange) onRangeChange(next);
+  };
   const [mode, setMode] = useState<SeriesMode>('weekly');
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const sorted = useMemo(() => [...entries].sort((a, b) => a.date.localeCompare(b.date)), [entries]);
 
+  const effectiveMode: SeriesMode = range === '1w' ? 'daily' : mode;
+
   const allPoints = useMemo(
-    () => (mode === 'weekly' ? buildWeeklyPoints(sorted, language) : buildDailyPoints(sorted, language)),
-    [sorted, mode, language]
+    () => (effectiveMode === 'weekly' ? buildWeeklyPoints(sorted, language) : buildDailyPoints(sorted, language)),
+    [sorted, effectiveMode, language]
   );
 
   const visiblePoints = useMemo(() => {
     if (range === 'all') return allPoints;
-    const weeksLimit = range === '4w' ? 4 : range === '8w' ? 8 : 12;
-    if (mode === 'weekly') {
+    const daysLimit = range === '1w' ? 7 : range === '1m' ? 30 : 84;
+    if (effectiveMode === 'weekly') {
+      const weeksLimit = range === '1m' ? 4 : 12;
       return allPoints.slice(-weeksLimit);
     }
     if (allPoints.length === 0) return [];
-    const latestDate = sorted[sorted.length - 1].date;
-    const [y, m, d] = latestDate.split('-').map(Number);
-    const cutoff = new Date(Date.UTC(y, m - 1, d - weeksLimit * 7)).toISOString().slice(0, 10);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const latestEntryDate = sorted[sorted.length - 1].date;
+    const anchorDate = latestEntryDate > todayStr ? latestEntryDate : todayStr;
+    const [y, m, d] = anchorDate.split('-').map(Number);
+    const cutoff = new Date(Date.UTC(y, m - 1, d - (daysLimit - 1))).toISOString().slice(0, 10);
     return allPoints.filter((_, idx) => sorted[idx].date >= cutoff);
-  }, [allPoints, range, mode, sorted]);
+  }, [allPoints, range, effectiveMode, sorted]);
 
   // SVG Geometry
   const SVG_W = 640;
@@ -232,10 +246,20 @@ export const WeeklyWeightChart: React.FC<WeeklyWeightChartProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 dark:text-white">
-            {isHi ? 'साप्ताहिक वज़न ट्रेंड' : 'Weekly Weight Trend'}
+            {range === '1w'
+              ? isHi
+                ? '1 सप्ताह का वज़न ट्रेंड'
+                : '1-Week Weight Trend'
+              : range === '1m'
+              ? isHi
+                ? '1 माह का वज़न ट्रेंड'
+                : '1-Month Weight Trend'
+              : isHi
+              ? 'साप्ताहिक वज़न ट्रेंड'
+              : 'Weight Progress Trend'}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            {mode === 'weekly'
+            {effectiveMode === 'weekly'
               ? isHi
                 ? 'दीर्घकालिक प्रगति के लिए साप्ताहिक औसत वज़न'
                 : 'Weekly average weigh-ins for long-term trajectory'
@@ -251,7 +275,7 @@ export const WeeklyWeightChart: React.FC<WeeklyWeightChartProps> = ({
             {(
               [
                 ['weekly', isHi ? 'साप्ताहिक' : 'Weekly'],
-                ['daily', isHi ? 'सभी लॉग' : 'All Logs'],
+                ['daily', isHi ? 'दैनिक' : 'Daily'],
               ] as [SeriesMode, string][]
             ).map(([val, lbl]) => (
               <button
@@ -262,7 +286,7 @@ export const WeeklyWeightChart: React.FC<WeeklyWeightChartProps> = ({
                   setActiveIndex(null);
                 }}
                 className={`min-h-[32px] px-2.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                  mode === val
+                  effectiveMode === val
                     ? 'bg-white dark:bg-emerald-600 text-slate-900 dark:text-white shadow-2xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
@@ -272,15 +296,15 @@ export const WeeklyWeightChart: React.FC<WeeklyWeightChartProps> = ({
             ))}
           </div>
 
-          {/* Time Range Filter */}
+          {/* Time Range Filter: 1W / 1M / 12W / All */}
           <div className="inline-flex p-1 rounded-xl bg-stone-100 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40">
             {(
               [
-                ['4w', '4W'],
-                ['8w', '8W'],
+                ['1w', isHi ? '1 सप्ताह' : '1W'],
+                ['1m', isHi ? '1 माह' : '1M'],
                 ['12w', '12W'],
                 ['all', isHi ? 'सभी' : 'All'],
-              ] as [RangeKey, string][]
+              ] as [WeightChartRangeKey, string][]
             ).map(([val, lbl]) => (
               <button
                 key={val}

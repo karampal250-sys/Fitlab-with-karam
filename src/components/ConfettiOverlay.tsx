@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Award, Droplets, Flame, X } from 'lucide-react';
+import { Award, Droplets, Flame, Sparkles, X } from 'lucide-react';
 import type { Language } from '../types/fitplate';
 
-export type CelebrationKind = 'calorie' | 'water';
+export type CelebrationKind = 'calorie' | 'protein' | 'carbs' | 'fat' | 'fiber' | 'water';
 
 interface ConfettiOverlayProps {
   celebration: { id: number; kind: CelebrationKind } | null;
@@ -10,7 +10,7 @@ interface ConfettiOverlayProps {
   onDone: () => void;
 }
 
-interface Particle {
+interface SparkleParticle {
   x: number;
   y: number;
   vx: number;
@@ -19,21 +19,84 @@ interface Particle {
   color: string;
   rotation: number;
   vRot: number;
-  wobble: number;
-  wobbleSpeed: number;
-  shape: 'rect' | 'circle';
+  flickerPhase: number;
+  flickerSpeed: number;
+  kind: 'star' | 'ember';
   alpha: number;
 }
 
-const CONFETTI_COLORS = [
-  '#10b981', // emerald-500
-  '#0ea5e9', // sky-500
-  '#f59e0b', // amber-500
-  '#14b8a6', // teal-500
-  '#f43f5e', // rose-500
-  '#34d399', // emerald-400
-  '#38bdf8', // sky-400
-];
+const SPARKLE_PALETTES: Record<CelebrationKind, string[]> = {
+  calorie: ['#fbbf24', '#f59e0b', '#fb7185', '#10b981', '#fde68a', '#34d399'],
+  protein: ['#34d399', '#10b981', '#fbbf24', '#a7f3d0', '#fde047', '#2dd4bf'],
+  carbs: ['#38bdf8', '#fbbf24', '#60a5fa', '#fde68a', '#22d3ee', '#f59e0b'],
+  fat: ['#fbbf24', '#f59e0b', '#fb923c', '#fde68a', '#facc15', '#34d399'],
+  fiber: ['#2dd4bf', '#10b981', '#fbbf24', '#5eead4', '#a7f3d0', '#fde68a'],
+  water: ['#38bdf8', '#0ea5e9', '#67e8f9', '#2dd4bf', '#bae6fd', '#fbbf24'],
+};
+
+function getCelebrationCopy(kind: CelebrationKind, isHi: boolean) {
+  switch (kind) {
+    case 'protein':
+      return {
+        title: isHi ? 'प्रोटीन लक्ष्य पूरा! शानदार!' : '100% Protein Target Met!',
+        subtitle: isHi
+          ? 'मांसपेशियों और रिकवरी के लिए आज का प्रोटीन लक्ष्य हासिल हुआ।'
+          : 'Fueling muscle & recovery—your daily protein target is complete!',
+      };
+    case 'carbs':
+      return {
+        title: isHi ? 'कार्ब्स लक्ष्य पूर्ण!' : '100% Carbs Target Met!',
+        subtitle: isHi
+          ? 'संपूर्ण ऊर्जा के लिए आपका दैनिक कार्बोहाइड्रेट लक्ष्य पूरा हुआ।'
+          : 'Great steady energy—you hit your daily carbs target!',
+      };
+    case 'fat':
+      return {
+        title: isHi ? 'हेल्दी फैट्स लक्ष्य पूर्ण!' : '100% Healthy Fats Target Met!',
+        subtitle: isHi
+          ? 'हार्मोन और पोषण संतुलन के लिए आज का फैट लक्ष्य पूरा हुआ।'
+          : 'Balanced nutrition—your daily healthy fat target is complete!',
+      };
+    case 'fiber':
+      return {
+        title: isHi ? 'फाइबर लक्ष्य पूर्ण!' : '100% Fiber Target Met!',
+        subtitle: isHi
+          ? 'बेहतर पाचन और फिटनेस के लिए आज का फाइबर लक्ष्य पूरा हुआ।'
+          : 'Awesome gut health—you reached your daily fiber goal!',
+      };
+    case 'water':
+      return {
+        title: isHi ? '100% पानी का लक्ष्य पूर्ण!' : '100% Water Goal Reached!',
+        subtitle: isHi
+          ? 'शानदार हाइड्रेशन! आज का पानी का लक्ष्य पूरा हुआ।'
+          : 'Great hydration! You hit your daily water goal.',
+      };
+    case 'calorie':
+    default:
+      return {
+        title: isHi ? '100% कैलोरी लक्ष्य पूर्ण!' : '100% Calorie Target Reached!',
+        subtitle: isHi
+          ? 'बढ़िया! आपने आज का कैलोरी लक्ष्य हासिल कर लिया।'
+          : 'Awesome job hitting your daily calorie target!',
+      };
+  }
+}
+
+function drawFourPointStar(ctx: CanvasRenderingContext2D, radius: number) {
+  ctx.beginPath();
+  const spikes = 4;
+  const inner = radius * 0.34;
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = i % 2 === 0 ? radius : inner;
+    const angle = (i * Math.PI) / spikes;
+    const px = Math.cos(angle) * r;
+    const py = Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
 
 export const ConfettiOverlay: React.FC<ConfettiOverlayProps> = ({
   celebration,
@@ -62,35 +125,38 @@ export const ConfettiOverlay: React.FC<ConfettiOverlayProps> = ({
 
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const palette =
-      celebration.kind === 'water'
-        ? ['#0ea5e9', '#38bdf8', '#14b8a6', '#10b981', '#60a5fa', '#a5f3fc']
-        : CONFETTI_COLORS;
+    const palette = SPARKLE_PALETTES[celebration.kind] || SPARKLE_PALETTES.calorie;
 
-    // Spawn burst from top-left, top-center, and top-right cannons
-    const particles: Particle[] = Array.from({ length: 95 }, (_, idx) => {
-      const originX =
-        idx % 3 === 0 ? w * 0.25 : idx % 3 === 1 ? w * 0.5 : w * 0.75;
-      const originY = h * 0.14;
-      const spreadAngle = -Math.PI / 2 + (Math.random() - 0.5) * 1.45;
-      const speed = 5 + Math.random() * 9.5;
+    // Multi-point burning sparkle starbursts across the home screen
+    const origins = [
+      { x: w * 0.22, y: h * 0.24 },
+      { x: w * 0.5, y: h * 0.18 },
+      { x: w * 0.78, y: h * 0.24 },
+      { x: w * 0.35, y: h * 0.42 },
+      { x: w * 0.65, y: h * 0.42 },
+    ];
+
+    const particles: SparkleParticle[] = Array.from({ length: 120 }, (_, idx) => {
+      const origin = origins[idx % origins.length];
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.8 + Math.random() * 7.5;
       return {
-        x: originX + (Math.random() - 0.5) * 40,
-        y: originY + (Math.random() - 0.5) * 20,
-        vx: Math.cos(spreadAngle) * speed,
-        vy: Math.sin(spreadAngle) * speed - 1.5,
-        size: 6 + Math.random() * 6,
+        x: origin.x + (Math.random() - 0.5) * 16,
+        y: origin.y + (Math.random() - 0.5) * 16,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 1.8,
+        size: 4 + Math.random() * 6.5,
         color: palette[idx % palette.length],
         rotation: Math.random() * Math.PI * 2,
-        vRot: (Math.random() - 0.5) * 0.22,
-        wobble: Math.random() * Math.PI * 2,
-        wobbleSpeed: 0.06 + Math.random() * 0.08,
-        shape: idx % 4 === 0 ? 'circle' : 'rect',
+        vRot: (Math.random() - 0.5) * 0.16,
+        flickerPhase: Math.random() * Math.PI * 2,
+        flickerSpeed: 0.18 + Math.random() * 0.16,
+        kind: idx % 3 === 0 ? 'ember' : 'star',
         alpha: 1,
       };
     });
 
-    const durationMs = 3400;
+    const durationMs = 3200;
     const startTime = performance.now();
     let rafId = 0;
 
@@ -102,15 +168,16 @@ export const ConfettiOverlay: React.FC<ConfettiOverlayProps> = ({
 
       let activeCount = 0;
       for (const p of particles) {
-        p.vy += 0.22; // gravity
-        p.vx *= 0.985; // drag
-        p.wobble += p.wobbleSpeed;
-        p.x += p.vx + Math.sin(p.wobble) * 0.9;
+        p.vy += 0.085;
+        p.vx *= 0.975;
+        p.x += p.vx;
         p.y += p.vy;
         p.rotation += p.vRot;
-        if (progress > 0.65) {
-          p.alpha = Math.max(0, 1 - (progress - 0.65) / 0.35);
-        }
+        p.flickerPhase += p.flickerSpeed;
+
+        const twinkle = 0.65 + 0.35 * Math.sin(p.flickerPhase);
+        const fade = progress > 0.55 ? Math.max(0, 1 - (progress - 0.55) / 0.45) : 1;
+        p.alpha = fade * twinkle;
 
         if (p.alpha > 0.02 && p.y < window.innerHeight + 40) {
           activeCount++;
@@ -118,13 +185,20 @@ export const ConfettiOverlay: React.FC<ConfettiOverlayProps> = ({
           ctx.globalAlpha = p.alpha;
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rotation);
+          ctx.shadowBlur = 14;
+          ctx.shadowColor = p.color;
           ctx.fillStyle = p.color;
-          if (p.shape === 'circle') {
+
+          if (p.kind === 'star') {
+            drawFourPointStar(ctx, p.size);
+            ctx.fillStyle = '#ffffff';
             ctx.beginPath();
-            ctx.arc(0, 0, p.size * 0.45, 0, Math.PI * 2);
+            ctx.arc(0, 0, Math.max(1, p.size * 0.18), 0, Math.PI * 2);
             ctx.fill();
           } else {
-            ctx.fillRect(-p.size * 0.5, -p.size * 0.3, p.size, p.size * 0.6);
+            ctx.beginPath();
+            ctx.arc(0, 0, p.size * 0.35, 0, Math.PI * 2);
+            ctx.fill();
           }
           ctx.restore();
         }
@@ -149,6 +223,7 @@ export const ConfettiOverlay: React.FC<ConfettiOverlayProps> = ({
   if (!celebration) return null;
 
   const isWater = celebration.kind === 'water';
+  const copy = getCelebrationCopy(celebration.kind, isHi);
 
   return (
     <div className="fixed inset-0 z-50 pointer-events-none" aria-live="polite">
@@ -156,38 +231,28 @@ export const ConfettiOverlay: React.FC<ConfettiOverlayProps> = ({
 
       <div className="fixed top-5 left-1/2 -translate-x-1/2 px-4 w-full max-w-sm pointer-events-auto">
         <div
-          className={`rounded-2xl border shadow-lg px-4 py-3 flex items-center justify-between gap-3 backdrop-blur-md ${
+          className={`rounded-2xl border shadow-xl px-4 py-3 flex items-center justify-between gap-3 backdrop-blur-md ${
             isWater
-              ? 'bg-sky-600/95 border-sky-400 text-white'
-              : 'bg-emerald-600/95 border-emerald-400 text-white'
+              ? 'bg-sky-600/95 border-sky-300 text-white'
+              : 'bg-slate-900/95 dark:bg-emerald-900/95 border-amber-400/80 text-white'
           }`}
         >
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-              {isWater ? <Droplets className="w-5 h-5" /> : <Flame className="w-5 h-5" />}
+            <div className="w-9 h-9 rounded-xl bg-amber-400/20 text-amber-300 flex items-center justify-center shrink-0">
+              {isWater ? (
+                <Droplets className="w-5 h-5 text-sky-200" />
+              ) : celebration.kind === 'calorie' ? (
+                <Flame className="w-5 h-5 text-amber-300" />
+              ) : (
+                <Sparkles className="w-5 h-5 text-amber-300" />
+              )}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1 text-xs font-bold">
-                <Award className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">
-                  {isWater
-                    ? isHi
-                      ? '100% पानी का लक्ष्य पूर्ण!'
-                      : '100% Water Goal Reached!'
-                    : isHi
-                    ? '100% कैलोरी लक्ष्य पूर्ण!'
-                    : '100% Calorie Target Reached!'}
-                </span>
+                <Award className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span className="truncate">{copy.title}</span>
               </div>
-              <p className="text-[11px] text-white/90 truncate">
-                {isWater
-                  ? isHi
-                    ? 'शानदार हाइड्रेशन! आज का लक्ष्य पूरा हुआ।'
-                    : 'Great hydration! You hit your daily water goal.'
-                  : isHi
-                  ? 'बढ़िया! आपने आज का कैलोरी लक्ष्य हासिल कर लिया।'
-                  : 'Awesome job hitting your daily calorie target!'}
-              </p>
+              <p className="text-[11px] text-white/90 truncate">{copy.subtitle}</p>
             </div>
           </div>
           <button

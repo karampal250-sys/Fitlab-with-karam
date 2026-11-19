@@ -496,6 +496,28 @@ export default function App() {
     }
   };
 
+  const handleUpdateFoodLogQty = (id: string, nextQty: number) => {
+    const target = foodLogs.find((item) => item.id === id);
+    if (!target) return;
+    const safeNextQty = Math.max(0.25, Math.min(50, Math.round(nextQty * 100) / 100));
+    const oldQty = target.servingQty > 0 ? target.servingQty : 1;
+    const ratio = safeNextQty / oldQty;
+    const updatedEntry: FoodLogEntry = {
+      ...target,
+      servingQty: safeNextQty,
+      grams: Math.round(target.grams * ratio * 10) / 10,
+      calories: Math.round(target.calories * ratio),
+      protein: Math.round(target.protein * ratio * 10) / 10,
+      carbs: Math.round(target.carbs * ratio * 10) / 10,
+      fat: Math.round(target.fat * ratio * 10) / 10,
+      fiber: Math.round(target.fiber * ratio * 10) / 10,
+    };
+    setFoodLogs((prev) => prev.map((item) => (item.id === id ? updatedEntry : item)));
+    if (firebaseUser) {
+      syncFoodLogToCloud(currentUid, updatedEntry).catch(() => {});
+    }
+  };
+
   const handleDeleteFoodLog = (id: string) => {
     setFoodLogs((prev) => prev.filter((l) => l.id !== id));
     if (firebaseUser) {
@@ -1000,6 +1022,7 @@ export default function App() {
             streakDays={streakDays}
             reminders={reminders}
             onUpdateMetrics={handleUpdateMetrics}
+            onUpdateLogQty={handleUpdateFoodLogQty}
             onDeleteLog={handleDeleteFoodLog}
             onOpenLogger={(meal) => openFoodLogger(meal, 'search')}
             onQuickLogSuggestion={(idea) =>
@@ -1053,6 +1076,9 @@ export default function App() {
             profile={profile}
             language={language}
             entries={progressEntries}
+            foodLogs={foodLogs}
+            dailyMetricsMap={dailyMetricsMap}
+            activityLogs={activityLogs}
             onAddEntry={handleAddProgressEntry}
             onApplyAdjustedTarget={handleApplyAdjustedTarget}
           />

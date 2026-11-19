@@ -8,6 +8,7 @@ import {
   Droplets,
   Flame,
   Footprints,
+  Minus,
   Plus,
   RefreshCw,
   Sparkles,
@@ -52,6 +53,7 @@ interface DashboardViewProps {
   streakDays: number;
   reminders: RemindersConfig;
   onUpdateMetrics: (next: DailyMetrics) => void;
+  onUpdateLogQty?: (id: string, nextQty: number) => void;
   onDeleteLog: (id: string) => void;
   onOpenLogger: (mealType: MealType) => void;
   onQuickLogSuggestion: (item: {
@@ -106,6 +108,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   streakDays,
   reminders,
   onUpdateMetrics,
+  onUpdateLogQty,
   onDeleteLog,
   onOpenLogger,
   onQuickLogSuggestion,
@@ -153,13 +156,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [ideaLoading, setIdeaLoading] = useState(false);
   const [showExercisePicker, setShowExercisePicker] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
-  const [celebration, setCelebration] = useState<{ id: number; kind: CelebrationKind } | null>(null);
+  const [celebrationQueue, setCelebrationQueue] = useState<{ id: number; kind: CelebrationKind }[]>([]);
+  const celebration = celebrationQueue[0] || null;
+
   const calorieGoalMet = profile.dailyCalorieTarget > 0 && totals.calories >= profile.dailyCalorieTarget;
+  const proteinGoalMet = profile.proteinTargetG > 0 && totals.protein >= profile.proteinTargetG;
+  const carbsGoalMet = profile.carbsTargetG > 0 && totals.carbs >= profile.carbsTargetG;
+  const fatGoalMet = profile.fatTargetG > 0 && totals.fat >= profile.fatTargetG;
+  const fiberGoalMet = profile.fiberTargetG > 0 && totals.fiber >= profile.fiberTargetG;
   const waterGoalMet = metrics.waterGoalMl > 0 && metrics.waterMl >= metrics.waterGoalMl;
 
-  const prevGoalStateRef = useRef<{ date: string; calorie: boolean; water: boolean }>({
+  const prevGoalStateRef = useRef<{
+    date: string;
+    calorie: boolean;
+    protein: boolean;
+    carbs: boolean;
+    fat: boolean;
+    fiber: boolean;
+    water: boolean;
+  }>({
     date: activeDate,
     calorie: calorieGoalMet,
+    protein: proteinGoalMet,
+    carbs: carbsGoalMet,
+    fat: fatGoalMet,
+    fiber: fiberGoalMet,
     water: waterGoalMet,
   });
 
@@ -169,26 +190,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       prevGoalStateRef.current = {
         date: activeDate,
         calorie: calorieGoalMet,
+        protein: proteinGoalMet,
+        carbs: carbsGoalMet,
+        fat: fatGoalMet,
+        fiber: fiberGoalMet,
         water: waterGoalMet,
       };
+      setCelebrationQueue([]);
       return;
     }
 
-    if (!prev.water && waterGoalMet) {
-      setCelebration({ id: Date.now(), kind: 'water' });
-    } else if (!prev.calorie && calorieGoalMet) {
-      setCelebration({ id: Date.now(), kind: 'calorie' });
+    const newlyMet: CelebrationKind[] = [];
+    if (!prev.protein && proteinGoalMet) newlyMet.push('protein');
+    if (!prev.calorie && calorieGoalMet) newlyMet.push('calorie');
+    if (!prev.fiber && fiberGoalMet) newlyMet.push('fiber');
+    if (!prev.carbs && carbsGoalMet) newlyMet.push('carbs');
+    if (!prev.fat && fatGoalMet) newlyMet.push('fat');
+    if (!prev.water && waterGoalMet) newlyMet.push('water');
+
+    if (newlyMet.length > 0) {
+      const baseId = Date.now();
+      setCelebrationQueue((q) => [
+        ...q,
+        ...newlyMet.map((kind, idx) => ({ id: baseId + idx, kind })),
+      ]);
     }
 
     prevGoalStateRef.current = {
       date: activeDate,
       calorie: calorieGoalMet,
+      protein: proteinGoalMet,
+      carbs: carbsGoalMet,
+      fat: fatGoalMet,
+      fiber: fiberGoalMet,
       water: waterGoalMet,
     };
-  }, [activeDate, calorieGoalMet, waterGoalMet]);
+  }, [activeDate, calorieGoalMet, proteinGoalMet, carbsGoalMet, fatGoalMet, fiberGoalMet, waterGoalMet]);
 
   const handleCelebrationDone = useCallback(() => {
-    setCelebration(null);
+    setCelebrationQueue((q) => q.slice(1));
   }, []);
 
   const defaultLocalIdea = useMemo(() => {
@@ -747,23 +787,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {(['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]).map((slot) => {
               const slotItems = dayLogs.filter((l) => l.mealType === slot);
               const slotCals = slotItems.reduce((s, x) => s + x.calories, 0);
+              const hasLoggedFood = slotItems.length > 0;
               return (
                 <div
                   key={slot}
-                  className="bg-white dark:bg-[#111a15] rounded-2xl border border-slate-200/80 dark:border-emerald-900/50 p-4 space-y-2.5"
+                  className={`rounded-2xl border p-4 space-y-2.5 transition-colors ${
+                    hasLoggedFood
+                      ? 'bg-slate-900 dark:bg-emerald-950 border-slate-800 dark:border-emerald-700 text-white shadow-md'
+                      : 'bg-white dark:bg-[#111a15] border-slate-200/80 dark:border-emerald-900/50 text-slate-900 dark:text-slate-100'
+                  }`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="font-display font-semibold text-base">{t(language, slot)}</h3>
-                      <p className="font-mono-num text-xs text-slate-500 dark:text-slate-400">
-                        {slotCals} kcal · {slotItems.length} {isHi ? 'आइटम' : slotItems.length === 1 ? 'item' : 'items'}
+                      <div className="flex items-center gap-2">
+                        {hasLoggedFood && (
+                          <span
+                            className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"
+                            aria-hidden="true"
+                          />
+                        )}
+                        <h3
+                          className={`font-display font-semibold text-base ${
+                            hasLoggedFood ? 'text-white' : 'text-slate-900 dark:text-white'
+                          }`}
+                        >
+                          {t(language, slot)}
+                        </h3>
+                      </div>
+                      <p
+                        className={`font-mono-num text-xs ${
+                          hasLoggedFood
+                            ? 'text-emerald-300 font-semibold'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {slotCals} kcal · {slotItems.length}{' '}
+                        {isHi ? 'आइटम' : slotItems.length === 1 ? 'item' : 'items'}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => onOpenLogger(slot)}
-                        className="min-h-[44px] px-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
+                        className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                          hasLoggedFood
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold'
+                            : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                        }`}
                       >
                         <Plus className="w-4 h-4" />
                         {t(language, 'addFood')}
@@ -771,26 +841,77 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                   </div>
 
-                  {slotItems.length > 0 && (
-                    <div className="divide-y divide-slate-100 dark:divide-emerald-950/60 pt-1">
+                  {hasLoggedFood && (
+                    <div className="divide-y divide-slate-800 dark:divide-emerald-900/70 pt-1">
                       {slotItems.map((item) => (
-                        <div key={item.id} className="py-2.5 flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                        <div key={item.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-white truncate">
                               {item.foodName}
                             </div>
-                            <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-num">
+                            <div className="text-xs text-slate-300 dark:text-emerald-200/80 font-mono-num">
                               {item.servingQty} {item.servingUnit} ({item.grams}g) · P {item.protein}g · C {item.carbs}g · F{' '}
                               {item.fat}g
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="font-mono-num text-sm font-semibold">{item.calories} kcal</span>
+                          <div className="flex items-center justify-end gap-2 shrink-0">
+                            {onUpdateLogQty && (
+                              <div className="flex items-center rounded-lg bg-slate-800 dark:bg-emerald-900/80 border border-slate-700 dark:border-emerald-700/80 p-0.5">
+                                <button
+                                  type="button"
+                                  aria-label={isHi ? 'मात्रा घटाएं' : 'Decrease food quantity'}
+                                  onClick={() =>
+                                    onUpdateLogQty(
+                                      item.id,
+                                      Math.max(0.25, item.servingQty - (item.servingQty <= 0.5 ? 0.25 : 0.5))
+                                    )
+                                  }
+                                  className="min-h-[32px] min-w-[30px] rounded-md flex items-center justify-center text-slate-200 hover:bg-slate-700 dark:hover:bg-emerald-800 transition-colors"
+                                >
+                                  <Minus className="w-3.5 h-3.5" />
+                                </button>
+                                <select
+                                  aria-label={isHi ? 'मात्रा चुनें' : 'Select food quantity'}
+                                  value={
+                                    [0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].includes(item.servingQty)
+                                      ? item.servingQty
+                                      : 'custom'
+                                  }
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value);
+                                    if (!Number.isNaN(val)) onUpdateLogQty(item.id, val);
+                                  }}
+                                  className="min-h-[32px] px-1 bg-transparent font-mono-num text-xs font-bold text-white text-center focus:outline-none cursor-pointer"
+                                >
+                                  {[0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].map((q) => (
+                                    <option key={q} value={q} className="bg-slate-900 text-white">
+                                      {q}×
+                                    </option>
+                                  ))}
+                                  {![0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].includes(item.servingQty) && (
+                                    <option value="custom" className="bg-slate-900 text-white">
+                                      {item.servingQty}×
+                                    </option>
+                                  )}
+                                </select>
+                                <button
+                                  type="button"
+                                  aria-label={isHi ? 'मात्रा बढ़ाएं' : 'Increase food quantity'}
+                                  onClick={() => onUpdateLogQty(item.id, Math.min(50, item.servingQty + 0.5))}
+                                  className="min-h-[32px] min-w-[30px] rounded-md flex items-center justify-center text-slate-200 hover:bg-slate-700 dark:hover:bg-emerald-800 transition-colors"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                            <span className="font-mono-num text-sm font-bold text-emerald-300 whitespace-nowrap">
+                              {item.calories} kcal
+                            </span>
                             <button
                               type="button"
                               onClick={() => onDeleteLog(item.id)}
                               aria-label="Delete entry"
-                              className="min-h-[40px] min-w-[40px] rounded-lg text-slate-400 hover:text-rose-500 flex items-center justify-center transition-colors"
+                              className="min-h-[38px] min-w-[38px] rounded-lg text-slate-400 hover:text-rose-400 flex items-center justify-center transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>

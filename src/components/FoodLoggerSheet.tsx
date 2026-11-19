@@ -50,11 +50,13 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
   const [selectedServingIdx, setSelectedServingIdx] = useState(0);
   const [servingQty, setServingQty] = useState(1);
+  const [rowQuantities, setRowQuantities] = useState<Record<string, number>>({});
 
   // Simple Manual Food Entry state
   const [customName, setCustomName] = useState('');
   const [customDiet, setCustomDiet] = useState<DietType>('veg');
   const [customUnit, setCustomUnit] = useState<'katori' | 'piece' | 'gram' | 'cup' | 'plate'>('katori');
+  const [customQty, setCustomQty] = useState(1);
   const [customGrams, setCustomGrams] = useState(150);
   const [customCal, setCustomCal] = useState(200);
   const [customPro, setCustomPro] = useState(0);
@@ -62,6 +64,12 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [customFat, setCustomFat] = useState(0);
   const [customFib, setCustomFib] = useState(0);
   const [quickAddedBanner, setQuickAddedBanner] = useState<string | null>(null);
+
+  const getRowQty = (foodId: string) => rowQuantities[foodId] ?? 1;
+  const setRowQty = (foodId: string, nextQty: number) => {
+    const clamped = Math.max(0.25, Math.min(50, Math.round(nextQty * 100) / 100));
+    setRowQuantities((prev) => ({ ...prev, [foodId]: clamped }));
+  };
 
   useEffect(() => {
     setMealType(initialMealType);
@@ -107,9 +115,10 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     };
   }, [query, language]);
 
-  const quickLogFoodDefault = (food: FoodItem, qty = 1) => {
+  const quickLogFoodDefault = (food: FoodItem, qtyOverride?: number) => {
     const serving = food.servings[0];
     if (!serving) return;
+    const qty = Math.max(0.25, Math.min(50, qtyOverride ?? getRowQty(food.id)));
     const totalGrams = Math.round(serving.grams * qty * 10) / 10;
     const macros = computeMacrosForGrams(food, totalGrams);
     const foodTitle = isHi ? food.nameHi : food.name;
@@ -138,15 +147,16 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     });
     setQuickAddedBanner(
       isHi
-        ? `${foodTitle} (${macros.calories} kcal) ${t(language, mealType)} में जोड़ा गया`
-        : `Added ${foodTitle} (${macros.calories} kcal) to ${t(language, mealType)}`
+        ? `${qty}× ${foodTitle} (${macros.calories} kcal) ${t(language, mealType)} में जोड़ा गया`
+        : `Added ${qty}× ${foodTitle} (${macros.calories} kcal) to ${t(language, mealType)}`
     );
   };
 
   const logSelectedFood = () => {
     if (!selectedFood) return;
     const serving = selectedFood.servings[selectedServingIdx] || selectedFood.servings[0];
-    const totalGrams = Math.round(serving.grams * servingQty * 10) / 10;
+    const safeQty = Math.max(0.25, Math.min(50, Number(servingQty) || 1));
+    const totalGrams = Math.round(serving.grams * safeQty * 10) / 10;
     const macros = computeMacrosForGrams(selectedFood, totalGrams);
     const foodTitle = isHi ? selectedFood.nameHi : selectedFood.name;
 
@@ -158,7 +168,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
       foodId: selectedFood.id,
       foodName: foodTitle,
       servingUnit: serving.unit,
-      servingQty,
+      servingQty: safeQty,
       grams: totalGrams,
       calories: macros.calories,
       protein: macros.protein,
@@ -175,8 +185,8 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     onAddLog(entry);
     setQuickAddedBanner(
       isHi
-        ? `${foodTitle} (${macros.calories} kcal) ${t(language, mealType)} में जोड़ा गया`
-        : `Added ${foodTitle} (${macros.calories} kcal) to ${t(language, mealType)}`
+        ? `${safeQty}× ${foodTitle} (${macros.calories} kcal) ${t(language, mealType)} में जोड़ा गया`
+        : `Added ${safeQty}× ${foodTitle} (${macros.calories} kcal) to ${t(language, mealType)}`
     );
     setSelectedFood(null);
     setServingQty(1);
@@ -188,6 +198,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     if (!cleanName) return;
 
     const safeG = Math.max(1, Math.min(5000, Math.round(customGrams || 100)));
+    const safeQty = Math.max(0.25, Math.min(50, Math.round((customQty || 1) * 100) / 100));
     const safeCal = Math.max(0, Math.min(5000, Math.round(customCal || 0)));
     const safePro = Math.max(0, Math.min(500, Math.round((customPro || 0) * 10) / 10));
     const safeCarb = Math.max(0, Math.min(500, Math.round((customCarb || 0) * 10) / 10));
@@ -222,6 +233,13 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
     onSaveCustomFood(newFood);
 
     if (logImmediately) {
+      const totalCalories = Math.round(safeCal * safeQty);
+      const totalGrams = Math.round(safeG * safeQty * 10) / 10;
+      const totalPro = Math.round(safePro * safeQty * 10) / 10;
+      const totalCarb = Math.round(safeCarb * safeQty * 10) / 10;
+      const totalFat = Math.round(safeFat * safeQty * 10) / 10;
+      const totalFib = Math.round(safeFib * safeQty * 10) / 10;
+
       onAddLog({
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         uid,
@@ -230,30 +248,31 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
         foodId: newFood.id,
         foodName: newFood.name,
         servingUnit: customUnit,
-        servingQty: 1,
-        grams: safeG,
-        calories: safeCal,
-        protein: safePro,
-        carbs: safeCarb,
-        fat: safeFat,
-        fiber: safeFib,
+        servingQty: safeQty,
+        grams: totalGrams,
+        calories: totalCalories,
+        protein: totalPro,
+        carbs: totalCarb,
+        fat: totalFat,
+        fiber: totalFib,
         source: 'custom',
         createdAt: new Date().toISOString(),
       });
       setQuickAddedBanner(
         isHi
-          ? `${newFood.name} (${safeCal} kcal) ${t(language, mealType)} में जोड़ा गया`
-          : `Added ${newFood.name} (${safeCal} kcal) to ${t(language, mealType)}`
+          ? `${safeQty}× ${newFood.name} (${totalCalories} kcal) ${t(language, mealType)} में जोड़ा गया`
+          : `Added ${safeQty}× ${newFood.name} (${totalCalories} kcal) to ${t(language, mealType)}`
       );
     } else {
       setSelectedFood(newFood);
       setSelectedServingIdx(0);
-      setServingQty(1);
+      setServingQty(safeQty);
       setActiveTab('search');
       setQuery(newFood.name);
     }
 
     setCustomName('');
+    setCustomQty(1);
     setCustomCal(200);
     setCustomPro(0);
     setCustomCarb(0);
@@ -378,7 +397,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                 {isHi ? selectedFood.nameHi : selectedFood.name}
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 font-mono-num tabular-nums mt-0.5">
-                {activeMacros.calories} kcal · P {activeMacros.protein}g · C {activeMacros.carbs}g · F {activeMacros.fat}g · Fib{' '}
+                {servingQty}× ({Math.round(activeServing.grams * servingQty * 10) / 10}g) · {activeMacros.calories} kcal · P {activeMacros.protein}g · C {activeMacros.carbs}g · F {activeMacros.fat}g · Fib{' '}
                 {activeMacros.fiber}g
               </p>
             </div>
@@ -412,41 +431,62 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                {isHi ? 'मात्रा' : 'Quantity'}
+                {isHi ? 'मात्रा (Quantity)' : 'Quantity'}
               </label>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   aria-label="Decrease quantity"
                   onClick={() => setServingQty((q) => Math.max(0.25, Math.round((q - 0.5) * 100) / 100))}
-                  className="min-h-[44px] min-w-[44px] rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#090e0b] flex items-center justify-center"
+                  className="min-h-[44px] min-w-[44px] rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#090e0b] flex items-center justify-center shrink-0"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
-                {[0.5, 1, 1.5, 2].map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => setServingQty(q)}
-                    className={`flex-1 min-h-[44px] rounded-xl font-mono-num text-xs font-semibold border whitespace-nowrap ${
-                      servingQty === q
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-white dark:bg-[#090e0b] border-slate-200 dark:border-emerald-900/50'
-                    }`}
-                  >
-                    {q}×
-                  </button>
-                ))}
+                <input
+                  type="number"
+                  min={0.25}
+                  max={50}
+                  step={0.25}
+                  aria-label={isHi ? 'मात्रा लिखें' : 'Quantity value'}
+                  value={servingQty}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!Number.isNaN(val)) {
+                      setServingQty(Math.max(0.25, Math.min(50, Math.round(val * 100) / 100)));
+                    }
+                  }}
+                  className="w-full min-h-[44px] px-2 text-center rounded-xl border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-[#090e0b] font-mono-num text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
                 <button
                   type="button"
                   aria-label="Increase quantity"
-                  onClick={() => setServingQty((q) => Math.min(20, Math.round((q + 0.5) * 100) / 100))}
-                  className="min-h-[44px] min-w-[44px] rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#090e0b] flex items-center justify-center"
+                  onClick={() => setServingQty((q) => Math.min(50, Math.round((q + 0.5) * 100) / 100))}
+                  className="min-h-[44px] min-w-[44px] rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#090e0b] flex items-center justify-center shrink-0"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mr-1">
+              {isHi ? 'त्वरित मात्रा:' : 'Quick qty:'}
+            </span>
+            {[0.5, 1, 1.5, 2, 3, 4].map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => setServingQty(q)}
+                className={`min-h-[34px] px-3 rounded-lg font-mono-num text-xs font-semibold border whitespace-nowrap transition-colors ${
+                  servingQty === q
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white dark:bg-[#090e0b] border-slate-200 dark:border-emerald-900/50 hover:border-emerald-400'
+                }`}
+              >
+                {q}×
+              </button>
+            ))}
           </div>
 
           <button
@@ -456,7 +496,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
           >
             <Plus className="w-4 h-4" />
             <span>
-              {isHi ? `${t(language, mealType)} में जोड़ें` : `Add to ${t(language, mealType)}`} · {activeMacros.calories} kcal
+              {isHi ? `${servingQty}× ${t(language, mealType)} में जोड़ें` : `Add ${servingQty}× to ${t(language, mealType)}`} · {activeMacros.calories} kcal
             </span>
           </button>
         </div>
@@ -532,43 +572,83 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
                 ) : (
                   filteredList.map((food) => {
                     const defaultSrv = food.servings[0];
-                    const defaultMacros = computeMacrosForGrams(food, defaultSrv.grams);
+                    const rowQty = getRowQty(food.id);
+                    const scaledGrams = Math.round(defaultSrv.grams * rowQty * 10) / 10;
+                    const scaledMacros = computeMacrosForGrams(food, scaledGrams);
                     const isFav = favoriteIds.includes(food.id);
                     return (
                       <div
                         key={food.id}
-                        className="py-2.5 px-1.5 flex items-center justify-between gap-2.5 hover:bg-stone-50 dark:hover:bg-emerald-950/20 rounded-xl transition-colors"
+                        className="py-2.5 px-1.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-stone-50 dark:hover:bg-emerald-950/20 rounded-xl transition-colors"
                       >
                         <button
                           type="button"
                           onClick={() => {
                             setSelectedFood(food);
                             setSelectedServingIdx(0);
-                            setServingQty(1);
+                            setServingQty(rowQty);
                           }}
-                          className="flex-1 text-left min-h-[52px] flex flex-col justify-center min-w-0"
+                          className="flex-1 text-left min-h-[44px] flex flex-col justify-center min-w-0"
                         >
                           <div className="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">
                             {isHi ? food.nameHi : food.name}
                           </div>
                           <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-num tabular-nums mt-0.5 truncate">
-                            {isHi ? defaultSrv.labelHi : defaultSrv.labelEn} · {defaultMacros.calories} kcal · P {defaultMacros.protein}g
+                            {rowQty !== 1 ? `${rowQty}× ` : ''}
+                            {isHi ? defaultSrv.labelHi : defaultSrv.labelEn} · {scaledMacros.calories} kcal · P {scaledMacros.protein}g
                           </div>
                         </button>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center justify-end gap-1.5 shrink-0">
+                          <div className="flex items-center rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#090e0b] p-0.5">
+                            <button
+                              type="button"
+                              aria-label={isHi ? 'मात्रा घटाएं' : 'Decrease quantity'}
+                              onClick={() => setRowQty(food.id, rowQty - (rowQty <= 0.5 ? 0.25 : 0.5))}
+                              className="min-h-[36px] min-w-[34px] rounded-lg flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-stone-100 dark:hover:bg-emerald-950/60"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <select
+                              aria-label={isHi ? 'मात्रा चुनें' : 'Select quantity'}
+                              value={[0.5, 1, 1.5, 2, 2.5, 3, 4, 5].includes(rowQty) ? rowQty : 'custom'}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                if (!Number.isNaN(val)) setRowQty(food.id, val);
+                              }}
+                              className="min-h-[36px] px-1 bg-transparent font-mono-num text-xs font-bold text-slate-900 dark:text-white text-center focus:outline-none cursor-pointer"
+                            >
+                              {[0.5, 1, 1.5, 2, 2.5, 3, 4, 5].map((q) => (
+                                <option key={q} value={q} className="bg-white dark:bg-[#111a15]">
+                                  {q}×
+                                </option>
+                              ))}
+                              {![0.5, 1, 1.5, 2, 2.5, 3, 4, 5].includes(rowQty) && (
+                                <option value="custom">{rowQty}×</option>
+                              )}
+                            </select>
+                            <button
+                              type="button"
+                              aria-label={isHi ? 'मात्रा बढ़ाएं' : 'Increase quantity'}
+                              onClick={() => setRowQty(food.id, rowQty + 0.5)}
+                              className="min-h-[36px] min-w-[34px] rounded-lg flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-stone-100 dark:hover:bg-emerald-950/60"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
                           <button
                             type="button"
                             onClick={() => onToggleFavorite(food)}
                             aria-label="Favorite"
-                            className="min-h-[44px] min-w-[44px] rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors"
+                            className="min-h-[40px] min-w-[40px] rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors"
                           >
                             <Heart className={`w-4 h-4 ${isFav ? 'fill-rose-500 text-rose-500' : ''}`} />
                           </button>
                           <button
                             type="button"
-                            onClick={() => quickLogFoodDefault(food, 1)}
-                            className="min-h-[44px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 transition-colors whitespace-nowrap"
+                            onClick={() => quickLogFoodDefault(food, rowQty)}
+                            className="min-h-[40px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 transition-colors whitespace-nowrap"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             <span>{isHi ? 'जोड़ें' : 'Add'}</span>
@@ -620,7 +700,26 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                  {isHi ? 'मात्रा (Qty)' : 'Quantity'}
+                </label>
+                <input
+                  type="number"
+                  min={0.25}
+                  max={50}
+                  step={0.25}
+                  value={customQty}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!Number.isNaN(val)) {
+                      setCustomQty(Math.max(0.25, Math.min(50, val)));
+                    }
+                  }}
+                  className="w-full min-h-[44px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-xs font-bold"
+                />
+              </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
                   {isHi ? 'इकाई' : 'Serving'}
@@ -639,7 +738,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                  {isHi ? 'वज़न (g)' : 'Weight (g)'}
+                  {isHi ? 'वज़न (g / 1 इकाई)' : 'Weight (g / unit)'}
                 </label>
                 <input
                   type="number"
@@ -672,7 +771,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
           <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/80 dark:border-emerald-900/40 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                {isHi ? 'वैकल्पिक पोषण (Protein / Carbs / Fat)' : 'Optional Macros'}
+                {isHi ? 'वैकल्पिक पोषण (प्रति 1 इकाई)' : 'Optional Macros (per 1 serving)'}
               </span>
               <button
                 type="button"
@@ -710,7 +809,11 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
               className="flex-1 min-h-[48px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
             >
               <Plus className="w-4 h-4" />
-              <span>{isHi ? `${t(language, mealType)} में जोड़ें` : `Add to ${t(language, mealType)}`}</span>
+              <span>
+                {isHi
+                  ? `${customQty}× ${t(language, mealType)} में जोड़ें (${Math.round((customCal || 0) * (customQty || 1))} kcal)`
+                  : `Add ${customQty}× to ${t(language, mealType)} (${Math.round((customCal || 0) * (customQty || 1))} kcal)`}
+              </span>
             </button>
             <button
               type="button"
