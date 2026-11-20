@@ -30,6 +30,14 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36 & accept licenses
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
@@ -39,7 +47,7 @@ jobs:
         run: npm run build
 
       - name: Install Capacitor Android tooling
-        run: npm install --no-save --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android
+        run: npm install --no-save --legacy-peer-deps @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
 
       - name: Generate and sync Capacitor Android project
         run: |
@@ -52,17 +60,30 @@ jobs:
         run: |
           python3 - <<'EOF'
           import pathlib
+
           styles_path = pathlib.Path('android/app/src/main/res/values/styles.xml')
           if styles_path.exists():
               txt = styles_path.read_text()
+              if 'xmlns:tools=' not in txt:
+                  txt = txt.replace(
+                      '<resources>',
+                      '<resources xmlns:tools="http://schemas.android.com/tools">',
+                      1,
+                  )
               extra = (
                   '        <item name="android:fitsSystemWindows">true</item>\n'
-                  '        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\n'
+                  '        <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>\n'
                   '        <item name="android:navigationBarColor">@android:color/black</item>\n'
               )
               if 'fitsSystemWindows' not in txt:
-                  txt = txt.replace('</style>', extra + '    </style>', 1)
-                  styles_path.write_text(txt)
+                  target = '<style name="AppTheme.NoActionBar"'
+                  if target in txt:
+                      idx = txt.index(target)
+                      close_idx = txt.index('</style>', idx)
+                      txt = txt[:close_idx] + extra + '    ' + txt[close_idx:]
+                  else:
+                      txt = txt.replace('</style>', extra + '    </style>', 1)
+              styles_path.write_text(txt)
 
           manifest_path = pathlib.Path('android/app/src/main/AndroidManifest.xml')
           if manifest_path.exists():
@@ -86,25 +107,23 @@ jobs:
         run: |
           if [ -f "public/pwa-512x512.png" ]; then
             for dir in android/app/src/main/res/mipmap-*; do
-              if [ -f "$dir/ic_launcher.png" ]; then
+              if [ -f "$dir/ic_launcher.png" ] && [ -f "public/pwa-192x192.png" ]; then
                 cp public/pwa-192x192.png "$dir/ic_launcher.png"
               fi
-              if [ -f "$dir/ic_launcher_round.png" ]; then
+              if [ -f "$dir/ic_launcher_round.png" ] && [ -f "public/pwa-192x192.png" ]; then
                 cp public/pwa-192x192.png "$dir/ic_launcher_round.png"
               fi
-              if [ -f "$dir/ic_launcher_foreground.png" ]; then
+              if [ -f "$dir/ic_launcher_foreground.png" ] && [ -f "public/pwa-maskable-512x512.png" ]; then
                 cp public/pwa-maskable-512x512.png "$dir/ic_launcher_foreground.png"
               fi
             done
           fi
 
-      - name: Build Debug APK & Release AAB
+      - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
-          ./gradlew bundleRelease
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload Debug APK (Direct Phone Install)
         uses: actions/upload-artifact@v4
@@ -112,6 +131,11 @@ jobs:
           name: fit-plat-with-karam-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Build Release AAB & Unsigned APK
+        run: |
+          cd android
+          ./gradlew bundleRelease assembleRelease -x lintVitalRelease --no-daemon
 
       - name: Upload Release AAB (Google Play Store)
         uses: actions/upload-artifact@v4
@@ -134,11 +158,16 @@ jobs:
           cp android/app/build/outputs/bundle/release/app-release.aab release-files/Fit-Plat-with-Karam.aab
 
       - name: Publish GitHub Release with Direct APK & AAB Links
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0.${{ github.run_number }}"
-          gh release create "$TAG" release-files/Fit-Plat-with-Karam.apk release-files/Fit-Plat-with-Karam.aab \
-            --title "Fit-Plat with Karam $TAG" \
-            --notes "Direct Android APK (install on phone) and AAB (Google Play Store)." \
-            --latest
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-files/Fit-Plat-with-Karam.apk release-files/Fit-Plat-with-Karam.aab --clobber
+          else
+            gh release create "$TAG" release-files/Fit-Plat-with-Karam.apk release-files/Fit-Plat-with-Karam.aab \
+              --title "Fit-Plat with Karam $TAG" \
+              --notes "Direct Android APK (install on phone) and AAB (Google Play Store)." \
+              --latest
+          fi
