@@ -67,7 +67,11 @@ import {
 } from './services/firestoreSync';
 import { loadEncryptedState, saveEncryptedState, wipeAllLocalHealthData } from './utils/cryptoStorage';
 import { calculateNutritionPlan } from './utils/nutritionMath';
-import { buildDailySchedule, DEFAULT_WORKOUT_REMINDERS, deriveMealTimesFromWakeUp } from './data/activitiesCatalog';
+import {
+  buildDailySchedule,
+  deriveMealTimesFromWakeUp,
+  parseTimeToMinutes,
+} from './data/activitiesCatalog';
 import {
   addMinutesToCurrentHHMM,
   getCurrentHHMM,
@@ -78,7 +82,7 @@ import {
 import { t } from './i18n/translations';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { DashboardView } from './components/DashboardView';
-import { FoodLoggerSheet, type LoggerTab } from './components/FoodLoggerSheet';
+import { FoodLoggerSheet } from './components/FoodLoggerSheet';
 import { ProgressView } from './components/ProgressView';
 import { CoachView } from './components/CoachView';
 import { ProfileSettingsView } from './components/ProfileSettingsView';
@@ -107,6 +111,7 @@ interface PersistedAppState {
 
 const DEFAULT_REMINDERS: RemindersConfig = {
   wakeUpTime: '07:00',
+  sleepTime: '23:00',
   breakfast: '08:15',
   lunch: '13:00',
   dinner: '20:00',
@@ -115,7 +120,6 @@ const DEFAULT_REMINDERS: RemindersConfig = {
   alarmsEnabled: true,
   waterAlarmsEnabled: true,
   soundEnabled: true,
-  workoutReminders: { ...DEFAULT_WORKOUT_REMINDERS },
 };
 
 function todayIso(): string {
@@ -159,8 +163,7 @@ export default function App() {
   const [language, setLanguage] = useState<Language>('en');
   const [darkMode, setDarkMode] = useState<boolean>(false);
 
-  const [loggerModalMeal, setLoggerModalMeal] = useState<MealType | null>(null);
-  const [loggerInitialTab, setLoggerInitialTab] = useState<LoggerTab>('search');
+  const [selectedLogMeal, setSelectedLogMeal] = useState<MealType>('breakfast');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeAlarm, setActiveAlarm] = useState<{ slot: ScheduleSlot; isTest?: boolean } | null>(null);
   const [snoozedSlots, setSnoozedSlots] = useState<Record<string, string>>({});
@@ -215,22 +218,19 @@ export default function App() {
         setDailySchedulesMap(saved.dailySchedules || {});
         const savedRem = saved.reminders;
         const fallbackWake = saved.profile?.wakeUpTime || '07:00';
+        const fallbackSleep =
+          saved.profile?.sleepTime || deriveMealTimesFromWakeUp(fallbackWake).sleepTime;
         setReminders(
           savedRem
             ? {
                 ...DEFAULT_REMINDERS,
                 ...savedRem,
                 wakeUpTime: savedRem.wakeUpTime || fallbackWake,
-                workoutReminders: {
-                  ...DEFAULT_WORKOUT_REMINDERS,
-                  ...(savedRem.workoutReminders || {}),
-                  dayWorkoutTimes: { ...(savedRem.workoutReminders?.dayWorkoutTimes || {}) },
-                },
+                sleepTime: savedRem.sleepTime || fallbackSleep,
               }
             : {
                 ...DEFAULT_REMINDERS,
-                ...deriveMealTimesFromWakeUp(fallbackWake),
-                workoutReminders: { ...DEFAULT_WORKOUT_REMINDERS },
+                ...deriveMealTimesFromWakeUp(fallbackWake, fallbackSleep),
               }
         );
         setLanguage(saved.language || 'en');
@@ -304,7 +304,7 @@ export default function App() {
             if (cloud.profile.wakeUpTime) {
               setReminders((prev) => ({
                 ...prev,
-                ...deriveMealTimesFromWakeUp(cloud.profile!.wakeUpTime!),
+                ...deriveMealTimesFromWakeUp(cloud.profile!.wakeUpTime!, cloud.profile!.sleepTime),
               }));
             }
             setLanguage(cloud.profile.language);
@@ -445,7 +445,7 @@ export default function App() {
     } else if (nextProfile.wakeUpTime) {
       setReminders((prev) => ({
         ...prev,
-        ...deriveMealTimesFromWakeUp(nextProfile.wakeUpTime!),
+        ...deriveMealTimesFromWakeUp(nextProfile.wakeUpTime!, nextProfile.sleepTime),
       }));
     }
     setEditingOnboarding(false);
@@ -470,26 +470,45 @@ export default function App() {
     }
   };
 
-  const openFoodLogger = (meal: MealType, tab: LoggerTab = 'search') => {
-    setLoggerInitialTab(tab);
-    setLoggerModalMeal(meal);
-  };
-
   const getDefaultMealForNow = (): MealType => {
-    const hr = new Date().getHours();
-    if (hr >= 5 && hr < 11) return 'breakfast';
-    if (hr >= 11 && hr < 16) return 'lunch';
-    if (hr >= 16 && hr < 19) return 'snacks';
-    return 'dinner';
+    const slots = buildDailySchedule(reminders, 2500).filter(
+      (s) =>
+        s.kind === 'meal' &&
+        (s.id === 'meal_breakfast' || s.id === 'meal_lunch' || s.id === 'meal_snacks' || s.id === 'meal_dinner')
+    );
+    if (slots.length === 0) return 'breakfast';
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const wakeMin = parseTimeToMinutes(reminders.wakeUpTime || '07:00', 420);
+    const nowOffset = (nowMin - wakeMin + 1440) % 1440;
+    let activeSlot = slots[0];
+    for (const s of slots) {
+      if (nowOffset >= Math.max(0, s.offsetMin - 45)) {
+        activeSlot = s;
+      }
+    }
+    return activeSlot.mealType || 'breakfast';
   };
 
-  const handleAddFoodLog = (entry: FoodLogEntry, keepOpen = false) => {
+  const openFoodLogger = (meal: MealType) => {
+    setSelectedLogMeal(meal);
+    setActiveTab('log');
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const selectAppTab = (tab: AppTab) => {
+    if (tab === 'log') {
+      setSelectedLogMeal(getDefaultMealForNow());
+    }
+    setActiveTab(tab);
+  };
+
+  const handleAddFoodLog = (entry: FoodLogEntry, _keepOpen = false) => {
     const withUid = { ...entry, uid: currentUid };
     setFoodLogs((prev) => [withUid, ...prev]);
     setRecentFoodIds((prev) => [entry.foodId, ...prev.filter((id) => id !== entry.foodId)].slice(0, 15));
-    if (!keepOpen) {
-      setLoggerModalMeal(null);
-    }
     showToast(`${entry.foodName} · ${entry.calories} kcal`);
     if (firebaseUser) {
       syncFoodLogToCloud(currentUid, withUid).catch(() => {});
@@ -592,10 +611,15 @@ export default function App() {
   };
 
   const handleUpdateReminders = (next: RemindersConfig) => {
-    const wakeChanged = next.wakeUpTime && next.wakeUpTime !== reminders.wakeUpTime;
+    const wakeChanged = Boolean(next.wakeUpTime && next.wakeUpTime !== reminders.wakeUpTime);
+    const sleepChanged = Boolean(next.sleepTime && next.sleepTime !== reminders.sleepTime);
     setReminders(next);
-    if (wakeChanged && profile) {
-      const updatedProfile: UserProfile = { ...profile, wakeUpTime: next.wakeUpTime };
+    if ((wakeChanged || sleepChanged) && profile) {
+      const updatedProfile: UserProfile = {
+        ...profile,
+        wakeUpTime: next.wakeUpTime || profile.wakeUpTime,
+        sleepTime: next.sleepTime || profile.sleepTime,
+      };
       setProfile(updatedProfile);
       if (firebaseUser) {
         syncProfileToCloud(updatedProfile).catch(() => {});
@@ -640,59 +664,6 @@ export default function App() {
       `test_${sample.id}`
     );
     setActiveAlarm({ slot: sample, isTest: true });
-  };
-
-  const handleTestWaterAlarm = () => {
-    const waterSlots = buildDailySchedule(reminders, activeMetrics.waterGoalMl, new Date()).filter(
-      (s) => s.kind === 'water'
-    );
-    const sample = waterSlots.find((s) => !activeCompletedSlotIds.includes(s.id)) || waterSlots[0];
-    if (!sample) return;
-    if (reminders.soundEnabled !== false) {
-      playAlarmChime('water');
-    }
-    triggerBrowserNotification(
-      language === 'hi' ? `पानी पीने का अलार्म: ${sample.titleHi}` : `Drink Water Alarm: ${sample.titleEn}`,
-      language === 'hi' ? sample.detailHi : sample.detailEn,
-      `test_water_${sample.id}_${Date.now()}`
-    );
-    setActiveAlarm({ slot: sample, isTest: true });
-  };
-
-  const handleTestWorkoutSnackAlarm = (kind: 'pre' | 'post') => {
-    const slots = buildDailySchedule(reminders, activeMetrics.waterGoalMl, new Date());
-    const targetId = kind === 'pre' ? 'meal_pre_workout' : 'meal_post_workout';
-    const fallbackWr = { ...DEFAULT_WORKOUT_REMINDERS, ...(reminders.workoutReminders || {}) };
-    const slot =
-      slots.find((s) => s.id === targetId) || {
-        id: targetId,
-        time: fallbackWr.plannedWorkoutTime,
-        offsetMin: 0,
-        kind: 'meal' as const,
-        mealType: 'snacks' as const,
-        titleEn: kind === 'pre' ? 'Pre-Workout Snack' : 'Post-Workout Snack',
-        titleHi: kind === 'pre' ? 'प्री-वर्कआउट स्नैक' : 'पोस्ट-वर्कआउट स्नैक',
-        detailEn:
-          kind === 'pre'
-            ? fallbackWr.preWorkoutSnackNote || 'Banana + Black Coffee'
-            : fallbackWr.postWorkoutSnackNote || 'Whey Shake / Paneer / Eggs',
-        detailHi:
-          kind === 'pre'
-            ? fallbackWr.preWorkoutSnackNote || 'केला + ब्लैक कॉफी'
-            : fallbackWr.postWorkoutSnackNote || 'व्हे प्रोटीन / पनीर / अंडे',
-      };
-
-    if (reminders.soundEnabled !== false) {
-      playAlarmChime(slot.kind);
-    }
-    triggerBrowserNotification(
-      language === 'hi'
-        ? `Fit-Plat with Karam अलार्म: ${slot.titleHi}`
-        : `Fit-Plat with Karam Alarm: ${slot.titleEn}`,
-      language === 'hi' ? slot.detailHi : slot.detailEn,
-      `test_${targetId}_${Date.now()}`
-    );
-    setActiveAlarm({ slot, isTest: true });
   };
 
   // Monitor scheduled eating, hydration & activity alarms every 10 seconds
@@ -752,6 +723,20 @@ export default function App() {
     const timer = setInterval(checkAlarms, 10_000);
     return () => clearInterval(timer);
   }, [hydrated, profile, reminders, activeMetrics.waterGoalMl, dailySchedulesMap, snoozedSlots, language]);
+
+  // Automatically unlock audio & browser notifications on first user interaction when alarms are enabled
+  useEffect(() => {
+    if (!hydrated || !profile) return;
+    if (reminders.enabled === false || reminders.alarmsEnabled === false) return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'default') return;
+
+    const unlockNotifications = () => {
+      requestAlarmPermission().catch(() => {});
+    };
+    window.addEventListener('pointerdown', unlockNotifications, { once: true });
+    return () => window.removeEventListener('pointerdown', unlockNotifications);
+  }, [hydrated, profile, reminders.enabled, reminders.alarmsEnabled]);
 
   const handleToggleFavorite = (food: FoodItem) => {
     const exists = favoriteIds.includes(food.id);
@@ -956,7 +941,7 @@ export default function App() {
               <button
                 key={id}
                 type="button"
-                onClick={() => setActiveTab(id)}
+                onClick={() => selectAppTab(id)}
                 className={`min-h-[40px] whitespace-nowrap shrink-0 transition-colors border-b-2 ${
                   activeTab === id
                     ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 font-semibold'
@@ -974,7 +959,7 @@ export default function App() {
             </div>
             <button
               type="button"
-              onClick={() => setActiveTab('settings')}
+              onClick={() => selectAppTab('settings')}
               aria-label={t(language, 'profile')}
               className={`min-h-[38px] px-2.5 sm:px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 activeTab === 'settings'
@@ -989,7 +974,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => openFoodLogger(getDefaultMealForNow(), 'search')}
+              onClick={() => openFoodLogger(getDefaultMealForNow())}
               className="min-h-[38px] px-2.5 sm:px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -1018,13 +1003,9 @@ export default function App() {
             logs={foodLogs}
             metrics={activeMetrics}
             activities={activityLogs}
-            completedSlotIds={activeCompletedSlotIds}
             streakDays={streakDays}
-            reminders={reminders}
             onUpdateMetrics={handleUpdateMetrics}
-            onUpdateLogQty={handleUpdateFoodLogQty}
-            onDeleteLog={handleDeleteFoodLog}
-            onOpenLogger={(meal) => openFoodLogger(meal, 'search')}
+            onOpenLogger={(meal) => openFoodLogger(meal)}
             onQuickLogSuggestion={(idea) =>
               handleAddFoodLog({
                 id: `log_${Date.now()}`,
@@ -1045,13 +1026,8 @@ export default function App() {
                 createdAt: new Date().toISOString(),
               })
             }
-            onUpdateReminders={handleUpdateReminders}
             onAddActivity={handleAddActivity}
             onDeleteActivity={handleDeleteActivity}
-            onToggleScheduleSlot={handleToggleScheduleSlot}
-            onTestAlarm={handleTestAlarm}
-            onTestWaterAlarm={handleTestWaterAlarm}
-            onEnableAlarms={handleEnableAlarms}
           />
         )}
 
@@ -1059,14 +1035,21 @@ export default function App() {
           <FoodLoggerSheet
             language={language}
             activeDate={activeDate}
-            initialMealType="lunch"
+            initialMealType={selectedLogMeal}
             uid={currentUid}
             customFoods={customFoods}
-            favoriteIds={favoriteIds}
-            recentFoodIds={recentFoodIds}
-            onToggleFavorite={handleToggleFavorite}
+            reminders={reminders}
+            waterGoalMl={activeMetrics.waterGoalMl}
+            completedSlotIds={activeCompletedSlotIds}
+            dayLogs={foodLogs}
             onSaveCustomFood={handleSaveCustomFood}
             onAddLog={handleAddFoodLog}
+            onUpdateLogQty={handleUpdateFoodLogQty}
+            onDeleteLog={handleDeleteFoodLog}
+            onToggleScheduleSlot={handleToggleScheduleSlot}
+            onUpdateReminders={handleUpdateReminders}
+            onTestAlarm={handleTestAlarm}
+            onEnableAlarms={handleEnableAlarms}
             isStandaloneTab
           />
         )}
@@ -1093,10 +1076,6 @@ export default function App() {
             mealPlan={mealPlan}
             workoutPlan={workoutPlan}
             chatMessages={chatMessages}
-            reminders={reminders}
-            onUpdateReminders={handleUpdateReminders}
-            onEnableAlarms={handleEnableAlarms}
-            onTestWorkoutSnackAlarm={handleTestWorkoutSnackAlarm}
             onSaveMealPlan={(plan) => {
               setMealPlan(plan);
               if (firebaseUser) syncCoachPlanToCloud(currentUid, 'meal_plan', plan.title, plan).catch(() => {});
@@ -1137,6 +1116,9 @@ export default function App() {
             isOnline={isOnline}
             isSignedIn={Boolean(firebaseUser)}
             userEmail={firebaseUser?.email}
+            reminders={reminders}
+            onUpdateReminders={handleUpdateReminders}
+            onEnableAlarms={handleEnableAlarms}
             onChangeLanguage={handleChangeLanguage}
             onToggleDarkMode={handleToggleDarkMode}
             onToggleHealthSync={handleToggleHealthSync}
@@ -1149,28 +1131,6 @@ export default function App() {
           />
         )}
       </main>
-
-      {/* Food Logger Modal Sheet */}
-      {loggerModalMeal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full max-w-2xl">
-            <FoodLoggerSheet
-              language={language}
-              activeDate={activeDate}
-              initialMealType={loggerModalMeal}
-              initialTab={loggerInitialTab}
-              uid={currentUid}
-              customFoods={customFoods}
-              favoriteIds={favoriteIds}
-              recentFoodIds={recentFoodIds}
-              onToggleFavorite={handleToggleFavorite}
-              onSaveCustomFood={handleSaveCustomFood}
-              onAddLog={handleAddFoodLog}
-              onClose={() => setLoggerModalMeal(null)}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Active Schedule Alarm Banner / Modal */}
       {activeAlarm && (
@@ -1216,7 +1176,7 @@ export default function App() {
                     handleToggleScheduleSlot(slot);
                   }
                   if (slot.kind === 'meal' && slot.mealType) {
-                    setLoggerModalMeal(slot.mealType);
+                    openFoodLogger(slot.mealType);
                   }
                   setActiveAlarm(null);
                 }}
@@ -1289,7 +1249,7 @@ export default function App() {
                 <div className="min-w-0">
                   <div className="font-display font-bold text-sm truncate">{profile.name}</div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono-num truncate">
-                    {profile.dailyCalorieTarget} kcal · Wake {reminders.wakeUpTime || '07:00'}
+                    {profile.dailyCalorieTarget} kcal · Wake {reminders.wakeUpTime || '07:00'} · Sleep {reminders.sleepTime || '23:00'}
                   </div>
                 </div>
               </div>
@@ -1311,7 +1271,7 @@ export default function App() {
                     key={id}
                     type="button"
                     onClick={() => {
-                      setActiveTab(id);
+                      selectAppTab(id);
                       setMobileMenuOpen(false);
                     }}
                     className={`w-full min-h-[44px] px-3.5 rounded-xl text-sm font-semibold flex items-center gap-3 transition-colors ${
@@ -1434,7 +1394,7 @@ export default function App() {
               <button
                 key={id}
                 type="button"
-                onClick={() => setActiveTab(id)}
+                onClick={() => selectAppTab(id)}
                 className={`h-full flex flex-col items-center justify-center transition-colors ${
                   active ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'
                 }`}

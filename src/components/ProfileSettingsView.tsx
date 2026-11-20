@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import {
   Activity,
+  Bell,
   ChevronDown,
   ChevronUp,
+  Clock,
   Download,
+  Droplets,
   Globe,
   Lock,
   LogIn,
@@ -11,10 +14,12 @@ import {
   Moon,
   ShieldAlert,
   Sun,
+  Sunrise,
   Trash2,
   UserCog,
 } from 'lucide-react';
-import type { Language, UserProfile } from '../types/fitplate';
+import type { Language, RemindersConfig, UserProfile } from '../types/fitplate';
+import { deriveMealTimesFromWakeUp, isNightShiftWakeTime } from '../data/activitiesCatalog';
 import { t } from '../i18n/translations';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -25,6 +30,9 @@ interface ProfileSettingsViewProps {
   isOnline: boolean;
   isSignedIn: boolean;
   userEmail?: string | null;
+  reminders: RemindersConfig;
+  onUpdateReminders: (next: RemindersConfig) => void;
+  onEnableAlarms?: () => void;
   onChangeLanguage: (lang: Language) => void;
   onToggleDarkMode: () => void;
   onToggleHealthSync: () => void;
@@ -43,6 +51,9 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   isOnline,
   isSignedIn,
   userEmail,
+  reminders,
+  onUpdateReminders,
+  onEnableAlarms,
   onChangeLanguage,
   onToggleDarkMode,
   onToggleHealthSync,
@@ -57,6 +68,31 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showBlueprint, setShowBlueprint] = useState(false);
+  const [routineSavedNotice, setRoutineSavedNotice] = useState(false);
+
+  const wakeTime = reminders.wakeUpTime || profile.wakeUpTime || '07:00';
+  const sleepTime =
+    reminders.sleepTime ||
+    profile.sleepTime ||
+    deriveMealTimesFromWakeUp(wakeTime).sleepTime;
+  const alarmsActive =
+    reminders.enabled !== false &&
+    reminders.alarmsEnabled !== false &&
+    reminders.waterAlarmsEnabled !== false;
+
+  const updateWakeSleep = (nextWake: string, nextSleep?: string) => {
+    const derived = deriveMealTimesFromWakeUp(nextWake, nextSleep);
+    onUpdateReminders({
+      ...reminders,
+      wakeUpTime: derived.wakeUpTime,
+      sleepTime: derived.sleepTime,
+      breakfast: derived.breakfast,
+      lunch: derived.lunch,
+      dinner: derived.dinner,
+    });
+    setRoutineSavedNotice(true);
+    setTimeout(() => setRoutineSavedNotice(false), 2000);
+  };
 
   const handleConfirmDelete = async () => {
     setDeleting(true);
@@ -88,7 +124,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
             <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num mt-0.5">
               {profile.dailyCalorieTarget} kcal/day · TDEE {profile.tdee} · BMI {profile.bmi} · {Number(Number(profile.heightCm).toFixed(2))} cm ·{' '}
               {profile.currentWeightKg} → {profile.targetWeightKg} kg
-              {profile.wakeUpTime ? ` · Wake ${profile.wakeUpTime}` : ''}
+              {` · Wake ${wakeTime} · Sleep ${sleepTime}`}
               {profile.dateOfBirth ? ` · DOB ${profile.dateOfBirth}` : ''}
             </p>
           </div>
@@ -101,6 +137,149 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           <UserCog className="w-4 h-4" />
           {isHi ? 'प्रोफ़ाइल और लक्ष्य बदलें' : 'Edit Profile & Goals'}
         </button>
+      </section>
+
+      {/* Wake-Up Time, Sleep Time & Automatic Notification Schedule */}
+      <section className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              {isNightShiftWakeTime(wakeTime) ? (
+                <Moon className="w-4.5 h-4.5" />
+              ) : (
+                <Sunrise className="w-4.5 h-4.5" />
+              )}
+            </div>
+            <div>
+              <h3 className="font-display font-semibold text-base text-slate-900 dark:text-white">
+                {isHi ? 'उठने व सोने का समय और ऑटो नोटिफिकेशन' : 'Wake-Up, Sleep Time & Auto Notifications'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {isHi
+                  ? 'पानी और भोजन की सूचनाएं आपके उठने से सोने के समय तक अपने आप भेजी जाती हैं।'
+                  : 'Automatic water & meal schedule notifications run silently from wake-up to sleep time.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!alarmsActive && onEnableAlarms) {
+                onEnableAlarms();
+              } else {
+                onUpdateReminders({
+                  ...reminders,
+                  enabled: !alarmsActive,
+                  alarmsEnabled: !alarmsActive,
+                  waterAlarmsEnabled: !alarmsActive,
+                });
+              }
+            }}
+            className={`min-h-[38px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors ${
+              alarmsActive
+                ? 'bg-emerald-600 text-white'
+                : 'border border-slate-200 dark:border-emerald-900/60 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            <Bell className="w-3.5 h-3.5" />
+            {alarmsActive
+              ? isHi
+                ? 'नोटिफिकेशन चालू'
+                : 'Auto Alerts ON'
+              : isHi
+              ? 'नोटिफिकेशन चालू करें'
+              : 'Enable Auto Alerts'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-2">
+              <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              {isHi ? 'उठने का समय (Wake-Up)' : 'Wake-Up Time'}
+            </label>
+            <input
+              type="time"
+              value={wakeTime}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                updateWakeSleep(e.target.value, sleepTime);
+              }}
+              className="w-full min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] font-mono-num text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-2">
+              <Moon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              {isHi ? 'सोने का समय (Sleep Time)' : 'Sleep Time'}
+            </label>
+            <input
+              type="time"
+              value={sleepTime}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                updateWakeSleep(wakeTime, e.target.value);
+              }}
+              className="w-full min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] font-mono-num text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-2">
+              <Droplets className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+              {isHi ? 'पानी नोटिफिकेशन अंतराल' : 'Water Notify Every'}
+            </label>
+            <select
+              value={reminders.waterIntervalMin}
+              onChange={(e) => {
+                onUpdateReminders({ ...reminders, waterIntervalMin: Number(e.target.value) });
+                setRoutineSavedNotice(true);
+                setTimeout(() => setRoutineSavedNotice(false), 2000);
+              }}
+              className="w-full min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value={30}>30 min</option>
+              <option value={45}>45 min</option>
+              <option value={60}>60 min</option>
+              <option value={90}>90 min</option>
+              <option value={120}>120 min</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                ['06:30', isHi ? '06:30 सुबह' : '06:30 Early'],
+                ['07:00', isHi ? '07:00 दिन' : '07:00 Day'],
+                ['14:00', isHi ? '14:00 दोपहर' : '14:00 Afternoon'],
+                ['20:00', isHi ? '20:00 नाइट' : '20:00 Night'],
+              ] as [string, string][]
+            ).map(([preset, lbl]) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => updateWakeSleep(preset)}
+                className={`min-h-[34px] px-2.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                  wakeTime === preset
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-stone-100 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {routineSavedNotice && (
+            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              {isHi ? 'समय सहेजा गया' : 'Schedule updated'}
+            </span>
+          )}
+        </div>
       </section>
 
       {/* Preferences */}

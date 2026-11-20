@@ -79,6 +79,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [customAllergy, setCustomAllergy] = useState('');
   const [timelineWeeks, setTimelineWeeks] = useState(initialProfile?.timelineWeeks || 12);
   const [wakeUpTime, setWakeUpTime] = useState(initialProfile?.wakeUpTime || '07:00');
+  const [sleepTime, setSleepTime] = useState(
+    initialProfile?.sleepTime ||
+      deriveMealTimesFromWakeUp(initialProfile?.wakeUpTime || '07:00').sleepTime
+  );
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [heroImgError, setHeroImgError] = useState(false);
@@ -175,12 +179,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     darkMode: initialProfile?.darkMode ?? false,
     healthSyncEnabled: initialProfile?.healthSyncEnabled ?? false,
     wakeUpTime,
+    sleepTime,
     authProvider: socialPrefill?.provider || initialProfile?.authProvider || 'local',
     reminders: {
-      ...deriveMealTimesFromWakeUp(wakeUpTime),
+      ...deriveMealTimesFromWakeUp(wakeUpTime, sleepTime),
       waterIntervalMin: initialProfile?.reminders?.waterIntervalMin ?? 90,
       enabled: initialProfile?.reminders?.enabled ?? true,
       alarmsEnabled: initialProfile?.reminders?.alarmsEnabled ?? true,
+      waterAlarmsEnabled: initialProfile?.reminders?.waterAlarmsEnabled ?? true,
       soundEnabled: initialProfile?.reminders?.soundEnabled ?? true,
     },
     encryptionEnabled: true,
@@ -219,8 +225,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       setFormError(isHi ? 'कृपया अपना लक्ष्य वज़न (kg) दर्ज करें।' : 'Please enter your target weight (kg).');
       return;
     }
-    if (!wakeUpTime) {
-      setFormError(isHi ? 'कृपया उठने का समय चुनें।' : 'Please enter your wake-up time.');
+    if (!wakeUpTime || !sleepTime) {
+      setFormError(isHi ? 'कृपया उठने और सोने का समय चुनें।' : 'Please enter your wake-up and sleep times.');
       return;
     }
     if (!disclaimerAccepted) return;
@@ -601,9 +607,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             </div>
           </div>
 
-          {/* Wake-Up Time & Shift Schedule */}
+          {/* Wake-Up & Sleep Time Schedule */}
           <div className="pt-2 border-t border-slate-100 dark:border-emerald-950 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   {isNightShiftWakeTime(wakeUpTime) ? (
@@ -611,23 +617,44 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   ) : (
                     <Sunrise className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   )}
-                  {isHi ? 'उठने का समय * (Day / Night Shift)' : 'Daily Wake-Up Time * (Day or Night Shift)'}
+                  {isHi ? 'उठने और सोने का समय * (Day / Night Shift)' : 'Daily Wake-Up & Sleep Time * (Day or Night Shift)'}
                 </label>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   {isHi
-                    ? 'आपका पूरा भोजन, पानी और अलार्म शेड्यूल आपके उठने के समय के अनुसार बनेगा।'
-                    : 'Your meal, water, workout & alarm schedule adapts automatically around your wake-up time.'}
+                    ? 'आपका पूरा भोजन, पानी और ऑटोमैटिक नोटिफिकेशन शेड्यूल इसी के अनुसार चलेगा।'
+                    : 'Your meal windows and automatic water notifications adapt across your wake-to-sleep schedule.'}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-slate-400" />
-                <input
-                  type="time"
-                  required
-                  value={wakeUpTime}
-                  onChange={(e) => e.target.value && setWakeUpTime(e.target.value)}
-                  className="min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    {isHi ? 'उठना' : 'Wake'}
+                  </span>
+                  <input
+                    type="time"
+                    required
+                    value={wakeUpTime}
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setWakeUpTime(e.target.value);
+                    }}
+                    className="min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                    <Moon className="w-3.5 h-3.5" />
+                    {isHi ? 'सोना' : 'Sleep'}
+                  </span>
+                  <input
+                    type="time"
+                    required
+                    value={sleepTime}
+                    onChange={(e) => e.target.value && setSleepTime(e.target.value)}
+                    className="min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] font-mono-num text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
               </div>
             </div>
 
@@ -643,7 +670,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <button
                   key={presetTime}
                   type="button"
-                  onClick={() => setWakeUpTime(presetTime)}
+                  onClick={() => {
+                    setWakeUpTime(presetTime);
+                    setSleepTime(deriveMealTimesFromWakeUp(presetTime).sleepTime);
+                  }}
                   className={`min-h-[40px] px-3 rounded-xl border text-xs font-semibold transition-colors ${
                     wakeUpTime === presetTime
                       ? 'bg-emerald-600 text-white border-emerald-600'

@@ -1,18 +1,15 @@
 import React, { useState } from 'react';
-import { Bell, BellOff, Clock, Dumbbell, Flame, MessageCircle, Plus, Send, Sparkles, Utensils, Volume2 } from 'lucide-react';
+import { Dumbbell, MessageCircle, Plus, Send, Sparkles, Utensils } from 'lucide-react';
 import type {
   ChatMessage,
   CoachMealPlan,
   CoachWorkoutPlan,
   Language,
   MealType,
-  RemindersConfig,
   UserProfile,
-  WorkoutSnackTriggersConfig,
 } from '../types/fitplate';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { buildLocal5DayWorkoutPlan, buildLocal7DayMealPlan } from '../data/coachPlansCatalog';
-import { computeWorkoutSnackTriggerTimes, DEFAULT_WORKOUT_REMINDERS } from '../data/activitiesCatalog';
 import { t } from '../i18n/translations';
 
 interface CoachViewProps {
@@ -23,10 +20,6 @@ interface CoachViewProps {
   mealPlan: CoachMealPlan | null;
   workoutPlan: CoachWorkoutPlan | null;
   chatMessages: ChatMessage[];
-  reminders: RemindersConfig;
-  onUpdateReminders: (next: RemindersConfig) => void;
-  onEnableAlarms?: () => void;
-  onTestWorkoutSnackAlarm?: (kind: 'pre' | 'post') => void;
   onSaveMealPlan: (plan: CoachMealPlan) => void;
   onSaveWorkoutPlan: (plan: CoachWorkoutPlan) => void;
   onAppendChat: (msgs: ChatMessage[]) => void;
@@ -52,10 +45,6 @@ export const CoachView: React.FC<CoachViewProps> = ({
   mealPlan,
   workoutPlan,
   chatMessages,
-  reminders,
-  onUpdateReminders,
-  onEnableAlarms,
-  onTestWorkoutSnackAlarm,
   onSaveMealPlan,
   onSaveWorkoutPlan,
   onAppendChat,
@@ -73,42 +62,6 @@ export const CoachView: React.FC<CoachViewProps> = ({
 
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-
-
-
-  const workoutReminders: WorkoutSnackTriggersConfig = {
-    ...DEFAULT_WORKOUT_REMINDERS,
-    ...(reminders.workoutReminders || {}),
-    dayWorkoutTimes: { ...(reminders.workoutReminders?.dayWorkoutTimes || {}) },
-  };
-
-  const updateWorkoutReminders = (patch: Partial<WorkoutSnackTriggersConfig>) => {
-    onUpdateReminders({
-      ...reminders,
-      workoutReminders: {
-        ...workoutReminders,
-        ...patch,
-      },
-    });
-  };
-
-  const updateDayWorkoutTime = (dayLabel: string, timeValue: string) => {
-    const nextOverrides = { ...(workoutReminders.dayWorkoutTimes || {}) };
-    if (!timeValue) {
-      delete nextOverrides[dayLabel];
-    } else {
-      nextOverrides[dayLabel] = timeValue;
-    }
-    updateWorkoutReminders({ dayWorkoutTimes: nextOverrides });
-  };
-
-  const alarmsActive = reminders.enabled !== false && reminders.alarmsEnabled !== false;
-  const globalTriggerTimes = computeWorkoutSnackTriggerTimes({
-    plannedWorkoutTime: workoutReminders.plannedWorkoutTime,
-    workoutDurationMin: workoutReminders.workoutDurationMin,
-    preWorkoutOffsetMin: workoutReminders.preWorkoutOffsetMin,
-    postWorkoutOffsetMin: workoutReminders.postWorkoutOffsetMin,
-  });
 
   const generateMealPlan = async () => {
     setMealLoading(true);
@@ -524,349 +477,6 @@ export const CoachView: React.FC<CoachViewProps> = ({
             </div>
           </div>
 
-          {/* Planned Workout Time & Pre/Post-Workout Snack Triggers */}
-          <div className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 sm:p-6 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-start gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                  <Bell className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-display font-bold text-base">
-                    {isHi ? 'प्री व पोस्ट-वर्कआउट स्नैक रिमाइंडर' : 'Pre & Post-Workout Snack Triggers'}
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {isHi
-                      ? 'अपने वर्कआउट समय के अनुसार कस्टम स्नैक नोटिफिकेशन सेट करें।'
-                      : 'Trigger custom snack notifications anchored to your planned Coach workout schedule.'}
-                  </p>
-                </div>
-              </div>
-
-              {onEnableAlarms && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!alarmsActive) {
-                      onEnableAlarms();
-                    } else {
-                      onUpdateReminders({ ...reminders, alarmsEnabled: false });
-                    }
-                  }}
-                  className={`min-h-[38px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                    alarmsActive
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-stone-100 dark:bg-[#090e0b] border border-slate-200 dark:border-emerald-900/50 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  {alarmsActive ? <Bell className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}
-                  {alarmsActive ? (isHi ? 'अलार्म चालू' : 'Alarms ON') : isHi ? 'अलार्म चालू करें' : 'Enable Alarms'}
-                </button>
-              )}
-            </div>
-
-            {/* Planned Workout Time & Session Duration */}
-            <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/80 dark:border-emerald-900/40 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                    {isHi ? 'नियोजित वर्कआउट समय' : 'Planned Workout Start'}
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="time"
-                      aria-label="Planned workout start time"
-                      value={workoutReminders.plannedWorkoutTime}
-                      onChange={(e) => {
-                        if (e.target.value) updateWorkoutReminders({ plannedWorkoutTime: e.target.value });
-                      }}
-                      className="min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] font-mono-num text-sm font-bold text-emerald-700 dark:text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <div className="flex items-center gap-1">
-                      {(
-                        [
-                          ['06:30', isHi ? 'सुबह 06:30' : '06:30 AM'],
-                          ['18:00', isHi ? 'शाम 18:00' : '06:00 PM'],
-                          ['20:30', isHi ? 'रात 20:30' : '08:30 PM'],
-                        ] as [string, string][]
-                      ).map(([presetVal, presetLbl]) => (
-                        <button
-                          key={presetVal}
-                          type="button"
-                          onClick={() => updateWorkoutReminders({ plannedWorkoutTime: presetVal })}
-                          className={`min-h-[36px] px-2.5 rounded-lg text-[11px] font-semibold transition-colors ${
-                            workoutReminders.plannedWorkoutTime === presetVal
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          {presetLbl}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                  {isHi ? 'वर्कआउट अवधि' : 'Session Duration'}
-                </label>
-                <div className="flex items-center gap-1">
-                  {[30, 45, 60, 75].map((dur) => (
-                    <button
-                      key={dur}
-                      type="button"
-                      onClick={() => updateWorkoutReminders({ workoutDurationMin: dur })}
-                      className={`min-h-[36px] px-2.5 rounded-lg font-mono-num text-xs font-semibold transition-colors ${
-                        workoutReminders.workoutDurationMin === dur
-                          ? 'bg-slate-900 dark:bg-emerald-600 text-white'
-                          : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-600 dark:text-slate-300'
-                      }`}
-                    >
-                      {dur}m
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Pre-Workout & Post-Workout Snack Trigger Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Pre-Workout Trigger Card */}
-              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/80 dark:border-emerald-900/40 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                    <div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {isHi ? 'प्री-वर्कआउट स्नैक' : 'Pre-Workout Snack'}
-                      </div>
-                      <div className="text-[11px] font-mono-num text-emerald-700 dark:text-emerald-400 font-semibold">
-                        {workoutReminders.preWorkoutEnabled
-                          ? isHi
-                            ? `अलर्ट समय: ${globalTriggerTimes.preWorkoutTime} (शुरू होने से ${workoutReminders.preWorkoutOffsetMin} मि पहले)`
-                            : `Fires at ${globalTriggerTimes.preWorkoutTime} (${workoutReminders.preWorkoutOffsetMin}m before start)`
-                          : isHi
-                          ? 'रिमाइंडर बंद है'
-                          : 'Trigger disabled'}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {onTestWorkoutSnackAlarm && (
-                      <button
-                        type="button"
-                        onClick={() => onTestWorkoutSnackAlarm('pre')}
-                        className="min-h-[32px] px-2 rounded-lg bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-800 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1"
-                      >
-                        <Volume2 className="w-3 h-3" />
-                        {isHi ? 'टेस्ट' : 'Test'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => updateWorkoutReminders({ preWorkoutEnabled: !workoutReminders.preWorkoutEnabled })}
-                      className={`min-h-[32px] px-2.5 rounded-lg text-[11px] font-semibold ${
-                        workoutReminders.preWorkoutEnabled
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-500'
-                      }`}
-                    >
-                      {workoutReminders.preWorkoutEnabled ? 'ON' : 'OFF'}
-                    </button>
-                  </div>
-                </div>
-
-                {workoutReminders.preWorkoutEnabled && (
-                  <>
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        {isHi ? 'वर्कआउट से कितने मिनट पहले याद दिलाएं:' : 'Notify before workout:'}
-                      </label>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[15, 30, 45, 60, 90].map((mins) => (
-                          <button
-                            key={mins}
-                            type="button"
-                            onClick={() => updateWorkoutReminders({ preWorkoutOffsetMin: mins })}
-                            className={`min-h-[32px] px-2.5 rounded-lg font-mono-num text-xs font-semibold ${
-                              workoutReminders.preWorkoutOffsetMin === mins
-                                ? 'bg-amber-600 text-white'
-                                : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-600 dark:text-slate-300'
-                            }`}
-                          >
-                            {mins}m
-                          </button>
-                        ))}
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            min={5}
-                            max={180}
-                            aria-label="Custom pre-workout minutes"
-                            value={workoutReminders.preWorkoutOffsetMin}
-                            onChange={(e) => {
-                              const v = Math.max(5, Math.min(180, Number(e.target.value) || 15));
-                              updateWorkoutReminders({ preWorkoutOffsetMin: v });
-                            }}
-                            className="w-16 min-h-[32px] px-2 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] font-mono-num text-xs text-center"
-                          />
-                          <span className="text-[11px] text-slate-500">min</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        {isHi ? 'प्री-वर्कआउट स्नैक नोट' : 'Custom Snack Prompt'}
-                      </label>
-                      <input
-                        type="text"
-                        value={workoutReminders.preWorkoutSnackNote || ''}
-                        onChange={(e) => updateWorkoutReminders({ preWorkoutSnackNote: e.target.value })}
-                        placeholder={isHi ? 'उदा. केला + ब्लैक कॉफी' : 'e.g. Banana + Black Coffee'}
-                        className="w-full min-h-[36px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-xs"
-                      />
-                      <div className="flex flex-wrap gap-1">
-                        {[
-                          'Banana + Black Coffee',
-                          'Oats + Peanut Butter',
-                          'Soaked Almonds + Dates',
-                        ].map((preset) => (
-                          <button
-                            key={preset}
-                            type="button"
-                            onClick={() => updateWorkoutReminders({ preWorkoutSnackNote: preset })}
-                            className="px-2 py-1 rounded-lg bg-white dark:bg-[#111a15] border border-slate-200/80 dark:border-emerald-900/40 text-[10px] text-slate-600 dark:text-slate-300 hover:border-emerald-500"
-                          >
-                            {preset}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Post-Workout Trigger Card */}
-              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/80 dark:border-emerald-900/40 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {isHi ? 'पोस्ट-वर्कआउट स्नैक' : 'Post-Workout Snack'}
-                      </div>
-                      <div className="text-[11px] font-mono-num text-emerald-700 dark:text-emerald-400 font-semibold">
-                        {workoutReminders.postWorkoutEnabled
-                          ? isHi
-                            ? `अलर्ट समय: ${globalTriggerTimes.postWorkoutTime} (खत्म होने के ${workoutReminders.postWorkoutOffsetMin} मि बाद)`
-                            : `Fires at ${globalTriggerTimes.postWorkoutTime} (${workoutReminders.postWorkoutOffsetMin}m after ${globalTriggerTimes.workoutEnd} end)`
-                          : isHi
-                          ? 'रिमाइंडर बंद है'
-                          : 'Trigger disabled'}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {onTestWorkoutSnackAlarm && (
-                      <button
-                        type="button"
-                        onClick={() => onTestWorkoutSnackAlarm('post')}
-                        className="min-h-[32px] px-2 rounded-lg bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-800 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1"
-                      >
-                        <Volume2 className="w-3 h-3" />
-                        {isHi ? 'टेस्ट' : 'Test'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => updateWorkoutReminders({ postWorkoutEnabled: !workoutReminders.postWorkoutEnabled })}
-                      className={`min-h-[32px] px-2.5 rounded-lg text-[11px] font-semibold ${
-                        workoutReminders.postWorkoutEnabled
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-500'
-                      }`}
-                    >
-                      {workoutReminders.postWorkoutEnabled ? 'ON' : 'OFF'}
-                    </button>
-                  </div>
-                </div>
-
-                {workoutReminders.postWorkoutEnabled && (
-                  <>
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        {isHi ? 'वर्कआउट खत्म होने के कितने मिनट बाद:' : 'Notify after workout ends:'}
-                      </label>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[15, 30, 45, 60].map((mins) => (
-                          <button
-                            key={mins}
-                            type="button"
-                            onClick={() => updateWorkoutReminders({ postWorkoutOffsetMin: mins })}
-                            className={`min-h-[32px] px-2.5 rounded-lg font-mono-num text-xs font-semibold ${
-                              workoutReminders.postWorkoutOffsetMin === mins
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-600 dark:text-slate-300'
-                            }`}
-                          >
-                            +{mins}m
-                          </button>
-                        ))}
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            min={5}
-                            max={180}
-                            aria-label="Custom post-workout minutes"
-                            value={workoutReminders.postWorkoutOffsetMin}
-                            onChange={(e) => {
-                              const v = Math.max(5, Math.min(180, Number(e.target.value) || 30));
-                              updateWorkoutReminders({ postWorkoutOffsetMin: v });
-                            }}
-                            className="w-16 min-h-[32px] px-2 rounded-lg border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] font-mono-num text-xs text-center"
-                          />
-                          <span className="text-[11px] text-slate-500">min</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        {isHi ? 'पोस्ट-वर्कआउट स्नैक नोट' : 'Custom Recovery Snack Prompt'}
-                      </label>
-                      <input
-                        type="text"
-                        value={workoutReminders.postWorkoutSnackNote || ''}
-                        onChange={(e) => updateWorkoutReminders({ postWorkoutSnackNote: e.target.value })}
-                        placeholder={isHi ? 'उदा. व्हे प्रोटीन / पनीर / अंडे' : 'e.g. Whey Shake / Paneer / Eggs'}
-                        className="w-full min-h-[36px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-white dark:bg-[#111a15] text-xs"
-                      />
-                      <div className="flex flex-wrap gap-1">
-                        {[
-                          'Whey Shake + Banana',
-                          'Paneer Bhurji / 3 Boiled Eggs',
-                          'Sprouts & Roasted Chana',
-                        ].map((preset) => (
-                          <button
-                            key={preset}
-                            type="button"
-                            onClick={() => updateWorkoutReminders({ postWorkoutSnackNote: preset })}
-                            className="px-2 py-1 rounded-lg bg-white dark:bg-[#111a15] border border-slate-200/80 dark:border-emerald-900/40 text-[10px] text-slate-600 dark:text-slate-300 hover:border-emerald-500"
-                          >
-                            {preset}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
           {workoutPlan && workoutPlan.days?.length > 0 ? (
             <div className="space-y-4">
               <div className="px-1 flex flex-wrap items-center justify-between gap-2">
@@ -877,19 +487,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {workoutPlan.days.map((day, i) => {
-                  const dayKey = day.day;
-                  const dayPlannedStart =
-                    workoutReminders.dayWorkoutTimes?.[dayKey] || day.plannedTime || workoutReminders.plannedWorkoutTime;
-                  const dayTimes = computeWorkoutSnackTriggerTimes({
-                    plannedWorkoutTime: dayPlannedStart,
-                    workoutDurationMin: day.durationMin || workoutReminders.workoutDurationMin,
-                    preWorkoutOffsetMin: workoutReminders.preWorkoutOffsetMin,
-                    postWorkoutOffsetMin: workoutReminders.postWorkoutOffsetMin,
-                  });
-                  const hasCustomDayTime = Boolean(workoutReminders.dayWorkoutTimes?.[dayKey]);
-
-                  return (
+                {workoutPlan.days.map((day, i) => (
                     <div
                       key={`${day.day}_${i}`}
                       className="bg-white dark:bg-[#111a15] rounded-3xl border border-slate-200/80 dark:border-emerald-900/50 p-5 space-y-3"
@@ -899,50 +497,8 @@ export const CoachView: React.FC<CoachViewProps> = ({
                           <h3 className="font-display font-bold text-base">{day.day}</h3>
                           <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">{day.focus}</p>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            <input
-                              type="time"
-                              aria-label={`Planned workout time for ${day.day}`}
-                              value={dayPlannedStart}
-                              onChange={(e) => updateDayWorkoutTime(dayKey, e.target.value)}
-                              className={`min-h-[32px] px-2 rounded-lg border font-mono-num text-xs font-semibold ${
-                                hasCustomDayTime
-                                  ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
-                                  : 'border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b] text-slate-700 dark:text-slate-200'
-                              }`}
-                            />
-                          </div>
-                          <span className="font-mono-num text-xs text-slate-500">{day.durationMin}m</span>
-                        </div>
+                        <span className="font-mono-num text-xs text-slate-500 shrink-0">{day.durationMin}m</span>
                       </div>
-
-                      {(workoutReminders.preWorkoutEnabled || workoutReminders.postWorkoutEnabled) && (
-                        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-stone-50 dark:bg-[#090e0b] text-[11px] font-mono-num">
-                          <div className="flex flex-wrap items-center gap-3">
-                            {workoutReminders.preWorkoutEnabled && (
-                              <span className="text-amber-700 dark:text-amber-400 font-semibold">
-                                {isHi ? 'प्री:' : 'Pre:'} {dayTimes.preWorkoutTime}
-                              </span>
-                            )}
-                            {workoutReminders.postWorkoutEnabled && (
-                              <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                                {isHi ? 'पोस्ट:' : 'Post:'} {dayTimes.postWorkoutTime}
-                              </span>
-                            )}
-                          </div>
-                          {hasCustomDayTime && (
-                            <button
-                              type="button"
-                              onClick={() => updateDayWorkoutTime(dayKey, '')}
-                              className="text-[10px] font-sans font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline"
-                            >
-                              {isHi ? 'डिफ़ॉल्ट' : 'Reset'}
-                            </button>
-                          )}
-                        </div>
-                      )}
 
                       <div className="space-y-2.5">
                         {day.exercises.map((ex, j) => {
@@ -980,8 +536,7 @@ export const CoachView: React.FC<CoachViewProps> = ({
                         })}
                       </div>
                     </div>
-                  );
-                })}
+                ))}
               </div>
             </div>
           ) : (

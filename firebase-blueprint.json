@@ -30,6 +30,7 @@
         "darkMode": { "type": "boolean" },
         "healthSyncEnabled": { "type": "boolean" },
         "wakeUpTime": { "type": "string", "minLength": 5, "maxLength": 5, "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+        "sleepTime": { "type": "string", "minLength": 5, "maxLength": 5, "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
         "authProvider": { "type": "string", "enum": ["google", "facebook", "local"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }

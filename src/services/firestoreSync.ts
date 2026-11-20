@@ -10,6 +10,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebaseClient';
+import { deriveMealTimesFromWakeUp } from '../data/activitiesCatalog';
 import type {
   ActivityLogEntry,
   CoachMealPlan,
@@ -52,6 +53,9 @@ export async function syncProfileToCloud(profile: UserProfile): Promise<void> {
       darkMode: Boolean(profile.darkMode),
       healthSyncEnabled: Boolean(profile.healthSyncEnabled),
       wakeUpTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(profile.wakeUpTime || '') ? profile.wakeUpTime : '07:00',
+      sleepTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(profile.sleepTime || '')
+        ? profile.sleepTime
+        : deriveMealTimesFromWakeUp(profile.wakeUpTime || '07:00').sleepTime,
       ...(profile.dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(profile.dateOfBirth)
         ? { dateOfBirth: profile.dateOfBirth }
         : {}),
@@ -128,6 +132,10 @@ export async function fetchUserCloudBundle(uid: string): Promise<{
       darkMode: Boolean(d.darkMode),
       healthSyncEnabled: Boolean(d.healthSyncEnabled),
       wakeUpTime: typeof d.wakeUpTime === 'string' ? d.wakeUpTime : '07:00',
+      sleepTime:
+        typeof d.sleepTime === 'string'
+          ? d.sleepTime
+          : deriveMealTimesFromWakeUp(typeof d.wakeUpTime === 'string' ? d.wakeUpTime : '07:00').sleepTime,
       ...(typeof d.dateOfBirth === 'string' ? { dateOfBirth: d.dateOfBirth } : {}),
       ...(d.authProvider ? { authProvider: d.authProvider } : {}),
     };

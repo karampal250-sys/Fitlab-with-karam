@@ -7,7 +7,7 @@ export type Language = 'en' | 'hi';
 export type FoodSource = 'indian_db' | 'open_food_facts' | 'ai_photo' | 'custom' | 'coach';
 
 export interface ServingOption {
-  unit: 'katori' | 'piece' | 'gram' | 'cup' | 'tbsp' | 'glass' | 'plate' | 'scoop';
+  unit: 'bowl' | 'no' | 'katori' | 'piece' | 'gram' | 'cup' | 'tbsp' | 'glass' | 'plate' | 'scoop';
   labelEn: string;
   labelHi: string;
   grams: number;
@@ -60,6 +60,7 @@ export interface UserProfile {
   darkMode: boolean;
   healthSyncEnabled: boolean;
   wakeUpTime?: string; // HH:MM (24h), supports day and night shifts
+  sleepTime?: string; // HH:MM (24h), bedtime boundary for daily schedule
   authProvider?: 'google' | 'facebook' | 'local';
   encryptionEnabled?: boolean;
   under18Acknowledged?: boolean;
@@ -68,20 +69,9 @@ export interface UserProfile {
   updatedAt?: string;
 }
 
-export interface WorkoutSnackTriggersConfig {
-  plannedWorkoutTime: string; // HH:MM (24h) default planned workout start time
-  workoutDurationMin: number; // default planned session duration in minutes
-  dayWorkoutTimes?: Record<string, string>; // optional per-day overrides keyed by weekday/day name
-  preWorkoutEnabled: boolean;
-  preWorkoutOffsetMin: number; // minutes before workout start (e.g. 30, 45, 60)
-  preWorkoutSnackNote?: string;
-  postWorkoutEnabled: boolean;
-  postWorkoutOffsetMin: number; // minutes after workout finishes (e.g. 15, 30, 45)
-  postWorkoutSnackNote?: string;
-}
-
 export interface RemindersConfig {
   wakeUpTime: string; // HH:MM (24h)
+  sleepTime?: string; // HH:MM (24h)
   breakfast: string;
   lunch: string;
   dinner: string;
@@ -90,7 +80,6 @@ export interface RemindersConfig {
   alarmsEnabled?: boolean;
   waterAlarmsEnabled?: boolean;
   soundEnabled?: boolean;
-  workoutReminders?: WorkoutSnackTriggersConfig;
 }
 
 export interface FoodLogEntry {

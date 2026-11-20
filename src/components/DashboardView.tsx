@@ -1,19 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
-  AlarmClock,
-  Bell,
-  BellOff,
-  Check,
   Droplets,
   Flame,
   Footprints,
-  Minus,
-  Plus,
   RefreshCw,
   Sparkles,
-  Trash2,
-  Volume2,
 } from 'lucide-react';
 import type {
   ActivityLogEntry,
@@ -21,23 +13,13 @@ import type {
   FoodLogEntry,
   Language,
   MealType,
-  RemindersConfig,
-  ScheduleSlot,
   UserProfile,
 } from '../types/fitplate';
 import { CalorieHeroRing, SmallMacroRing, WaterProgressRing } from './MacroRings';
 import { MacroDistributionChart } from './MacroDistributionChart';
-import { DailyScheduleCard } from './DailyScheduleCard';
 import { ActivityBurnTracker } from './ActivityBurnTracker';
 import { MealAnalysisSummaryCard } from './MealAnalysisSummaryCard';
 import { ConfettiOverlay, type CelebrationKind } from './ConfettiOverlay';
-import {
-  computeWorkoutSnackTriggerTimes,
-  DEFAULT_WORKOUT_REMINDERS,
-  deriveMealTimesFromWakeUp,
-  getWaterScheduleSlots,
-} from '../data/activitiesCatalog';
-import { getNextUpcomingSlot } from '../utils/alarmEngine';
 import { apiUrl, safeFetchJson } from '../utils/apiUrl';
 import { t } from '../i18n/translations';
 
@@ -49,12 +31,8 @@ interface DashboardViewProps {
   logs: FoodLogEntry[];
   metrics: DailyMetrics;
   activities: ActivityLogEntry[];
-  completedSlotIds: string[];
   streakDays: number;
-  reminders: RemindersConfig;
   onUpdateMetrics: (next: DailyMetrics) => void;
-  onUpdateLogQty?: (id: string, nextQty: number) => void;
-  onDeleteLog: (id: string) => void;
   onOpenLogger: (mealType: MealType) => void;
   onQuickLogSuggestion: (item: {
     foodName: string;
@@ -65,13 +43,8 @@ interface DashboardViewProps {
     fat: number;
     fiber: number;
   }) => void;
-  onUpdateReminders: (next: RemindersConfig) => void;
   onAddActivity: (entry: ActivityLogEntry) => void;
   onDeleteActivity: (id: string) => void;
-  onToggleScheduleSlot: (slot: ScheduleSlot) => void;
-  onTestAlarm: () => void;
-  onTestWaterAlarm?: () => void;
-  onEnableAlarms: () => void;
 }
 
 function getLast7Days(baseDateStr: string): { date: string; dayShort: string; dayNum: string }[] {
@@ -104,21 +77,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   logs,
   metrics,
   activities,
-  completedSlotIds,
   streakDays,
-  reminders,
   onUpdateMetrics,
-  onUpdateLogQty,
-  onDeleteLog,
   onOpenLogger,
   onQuickLogSuggestion,
-  onUpdateReminders,
   onAddActivity,
   onDeleteActivity,
-  onToggleScheduleSlot,
-  onTestAlarm,
-  onTestWaterAlarm,
-  onEnableAlarms,
 }) => {
   const isHi = language === 'hi';
   const dateChips = useMemo(() => getLast7Days(activeDate), [activeDate]);
@@ -155,7 +119,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   } | null>(null);
   const [ideaLoading, setIdeaLoading] = useState(false);
   const [showExercisePicker, setShowExercisePicker] = useState(false);
-  const [showReminders, setShowReminders] = useState(false);
   const [celebrationQueue, setCelebrationQueue] = useState<{ id: number; kind: CelebrationKind }[]>([]);
   const celebration = celebrationQueue[0] || null;
 
@@ -249,10 +212,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           }
         : {
             suggestionText: isHi
-              ? `आपके पास ${rem} kcal शेष हैं: 1 कप भुना मखाना + 1 कटोरी स्प्राउट्स लें।`
-              : `You have ${rem} kcal left: try 1 katori Moong Sprouts Chaat.`,
+              ? `आपके पास ${rem} kcal शेष हैं: 1 कप भुना मखाना + 1 बाउल स्प्राउट्स लें।`
+              : `You have ${rem} kcal left: try 1 bowl Moong Sprouts Chaat.`,
             foodName: 'Moong Sprouts Salad',
-            servingUnit: 'katori',
+            servingUnit: 'bowl',
             calories: 140,
             protein: 9,
             carbs: 20,
@@ -263,8 +226,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return rem >= 350
       ? {
           suggestionText: isHi
-            ? `आपके पास ${rem} kcal शेष हैं: 1 कटोरी पनीर भुर्जी + 1 रोटी आज़माएं।`
-            : `You have ${rem} kcal left: try 1 katori Paneer Bhurji + 1 Roti.`,
+            ? `आपके पास ${rem} kcal शेष हैं: 1 बाउल पनीर भुर्जी + 1 रोटी आज़माएं।`
+            : `You have ${rem} kcal left: try 1 bowl Paneer Bhurji + 1 Roti.`,
           foodName: 'Paneer Bhurji + 1 Whole Wheat Roti',
           servingUnit: 'plate',
           calories: 392,
@@ -275,10 +238,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }
       : {
           suggestionText: isHi
-            ? `आपके पास ${rem} kcal शेष हैं: 1 कटोरी ताज़ा दही + 10 भीगे बादाम लें।`
-            : `You have ${rem} kcal left: try 1 katori Curd + 10 Almonds.`,
+            ? `आपके पास ${rem} kcal शेष हैं: 1 बाउल ताज़ा दही + 10 भीगे बादाम लें।`
+            : `You have ${rem} kcal left: try 1 bowl Curd + 10 Almonds.`,
           foodName: 'Fresh Curd + 10 Almonds',
-          servingUnit: 'katori',
+          servingUnit: 'bowl',
           calories: 160,
           protein: 7.2,
           carbs: 9.2,
@@ -328,26 +291,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const waterPct = Math.min(100, Math.round((metrics.waterMl / Math.max(500, metrics.waterGoalMl)) * 100));
 
-  const [waterTick, setWaterTick] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setWaterTick(new Date()), 30_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const wakeTime = reminders.wakeUpTime || '07:00';
-  const waterSlots = useMemo(
-    () => getWaterScheduleSlots(reminders, metrics.waterGoalMl, waterTick),
-    [reminders, metrics.waterGoalMl, waterTick]
-  );
-  const nextWaterAlarm = useMemo(
-    () => getNextUpcomingSlot(waterSlots, wakeTime, completedSlotIds, waterTick),
-    [waterSlots, wakeTime, completedSlotIds, waterTick]
-  );
-  const waterAlarmsOn =
-    reminders.enabled !== false &&
-    reminders.alarmsEnabled !== false &&
-    reminders.waterAlarmsEnabled !== false;
-
   // BMI Bar calculations (clamped across 14 to 38 scale)
   const safeBmi = Number(profile.bmi) || 22;
   const bmiPct = Math.max(2, Math.min(98, ((safeBmi - 14) / (38 - 14)) * 100));
@@ -387,14 +330,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {t(language, 'streakLabel')}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowReminders((v) => !v)}
-            aria-label="Meal & water reminders"
-            className="min-h-[42px] min-w-[42px] rounded-2xl bg-white dark:bg-[#111a15] border border-slate-200/80 dark:border-emerald-900/50 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:border-emerald-500 transition-colors"
-          >
-            <Bell className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
@@ -419,165 +354,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           );
         })}
       </div>
-
-      {/* Inline Reminders Drawer */}
-      {showReminders && (
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/60 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold">
-              {isHi ? 'भोजन और पानी रिमाइंडर' : 'Meal & Water Reminders'}
-            </span>
-            <button
-              type="button"
-              onClick={() => onUpdateReminders({ ...reminders, enabled: !reminders.enabled })}
-              className={`min-h-[36px] px-3 rounded-xl text-xs font-semibold ${
-                reminders.enabled ? 'bg-emerald-600 text-white' : 'bg-stone-100 dark:bg-[#090e0b] text-slate-600'
-              }`}
-            >
-              {reminders.enabled ? (isHi ? 'चालू' : 'Active') : isHi ? 'बंद' : 'Paused'}
-            </button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-            <div>
-              <label className="block text-slate-500 mb-1">{isHi ? 'उठने का समय' : 'Wake-Up Time'}</label>
-              <input
-                type="time"
-                value={reminders.wakeUpTime || '07:00'}
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  const derived = deriveMealTimesFromWakeUp(e.target.value);
-                  onUpdateReminders({
-                    ...reminders,
-                    wakeUpTime: derived.wakeUpTime,
-                    breakfast: derived.breakfast,
-                    lunch: derived.lunch,
-                    dinner: derived.dinner,
-                  });
-                }}
-                className="w-full min-h-[40px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b]"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">{t(language, 'breakfast')}</label>
-              <input
-                type="time"
-                value={reminders.breakfast}
-                onChange={(e) => onUpdateReminders({ ...reminders, breakfast: e.target.value })}
-                className="w-full min-h-[40px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b]"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">{t(language, 'lunch')}</label>
-              <input
-                type="time"
-                value={reminders.lunch}
-                onChange={(e) => onUpdateReminders({ ...reminders, lunch: e.target.value })}
-                className="w-full min-h-[40px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b]"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">{t(language, 'dinner')}</label>
-              <input
-                type="time"
-                value={reminders.dinner}
-                onChange={(e) => onUpdateReminders({ ...reminders, dinner: e.target.value })}
-                className="w-full min-h-[40px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b]"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">{isHi ? 'पानी (मिनट)' : 'Water every'}</label>
-              <select
-                value={reminders.waterIntervalMin}
-                onChange={(e) => onUpdateReminders({ ...reminders, waterIntervalMin: Number(e.target.value) })}
-                className="w-full min-h-[40px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b]"
-              >
-                <option value={30}>30 min</option>
-                <option value={45}>45 min</option>
-                <option value={60}>60 min</option>
-                <option value={90}>90 min</option>
-                <option value={120}>120 min</option>
-              </select>
-            </div>
-          </div>
-          {(() => {
-            const wr = { ...DEFAULT_WORKOUT_REMINDERS, ...(reminders.workoutReminders || {}) };
-            const times = computeWorkoutSnackTriggerTimes({
-              plannedWorkoutTime: wr.plannedWorkoutTime,
-              workoutDurationMin: wr.workoutDurationMin,
-              preWorkoutOffsetMin: wr.preWorkoutOffsetMin,
-              postWorkoutOffsetMin: wr.postWorkoutOffsetMin,
-            });
-            const updateWr = (patch: Partial<typeof wr>) =>
-              onUpdateReminders({ ...reminders, workoutReminders: { ...wr, ...patch } });
-            return (
-              <div className="pt-2 border-t border-slate-100 dark:border-emerald-950 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                <div>
-                  <label className="block text-slate-500 mb-1">
-                    {isHi ? 'वर्कआउट समय (Coach)' : 'Planned Workout (Coach)'}
-                  </label>
-                  <input
-                    type="time"
-                    value={wr.plannedWorkoutTime}
-                    onChange={(e) => e.target.value && updateWr({ plannedWorkoutTime: e.target.value })}
-                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-emerald-900/50 bg-stone-50 dark:bg-[#090e0b]"
-                  />
-                </div>
-                <label className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40 cursor-pointer">
-                  <div>
-                    <div className="font-semibold text-slate-800 dark:text-slate-200">
-                      {isHi ? 'प्री-वर्कआउट स्नैक' : 'Pre-Workout Snack'}
-                    </div>
-                    <div className="font-mono-num text-[11px] text-amber-700 dark:text-amber-400">
-                      {times.preWorkoutTime} (-{wr.preWorkoutOffsetMin}m)
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={wr.preWorkoutEnabled}
-                    onChange={(e) => updateWr({ preWorkoutEnabled: e.target.checked })}
-                    className="w-4 h-4 accent-emerald-600 rounded"
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/70 dark:border-emerald-900/40 cursor-pointer">
-                  <div>
-                    <div className="font-semibold text-slate-800 dark:text-slate-200">
-                      {isHi ? 'पोस्ट-वर्कआउट स्नैक' : 'Post-Workout Snack'}
-                    </div>
-                    <div className="font-mono-num text-[11px] text-emerald-700 dark:text-emerald-400">
-                      {times.postWorkoutTime} (+{wr.postWorkoutOffsetMin}m)
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={wr.postWorkoutEnabled}
-                    onChange={(e) => updateWr({ postWorkoutEnabled: e.target.checked })}
-                    className="w-4 h-4 accent-emerald-600 rounded"
-                  />
-                </label>
-              </div>
-            );
-          })()}
-
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-emerald-950 text-xs">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={reminders.soundEnabled !== false}
-                onChange={(e) => onUpdateReminders({ ...reminders, soundEnabled: e.target.checked })}
-                className="w-4 h-4 accent-emerald-600 rounded"
-              />
-              <span>{isHi ? 'अलार्म ध्वनि चालू रखें' : 'Play alarm chime sound'}</span>
-            </label>
-            <button
-              type="button"
-              onClick={onTestAlarm}
-              className="min-h-[34px] px-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold"
-            >
-              {isHi ? 'अलार्म टेस्ट करें' : 'Test Alarm Now'}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Main Dashboard Grid (2-col on lg+, stacked on mobile) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -781,149 +557,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </button>
             </div>
           </section>
-
-          {/* Meal Slots */}
-          <section className="space-y-3">
-            {(['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]).map((slot) => {
-              const slotItems = dayLogs.filter((l) => l.mealType === slot);
-              const slotCals = slotItems.reduce((s, x) => s + x.calories, 0);
-              const hasLoggedFood = slotItems.length > 0;
-              return (
-                <div
-                  key={slot}
-                  className={`rounded-2xl border p-4 space-y-2.5 transition-colors ${
-                    hasLoggedFood
-                      ? 'bg-slate-900 dark:bg-emerald-950 border-slate-800 dark:border-emerald-700 text-white shadow-md'
-                      : 'bg-white dark:bg-[#111a15] border-slate-200/80 dark:border-emerald-900/50 text-slate-900 dark:text-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        {hasLoggedFood && (
-                          <span
-                            className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"
-                            aria-hidden="true"
-                          />
-                        )}
-                        <h3
-                          className={`font-display font-semibold text-base ${
-                            hasLoggedFood ? 'text-white' : 'text-slate-900 dark:text-white'
-                          }`}
-                        >
-                          {t(language, slot)}
-                        </h3>
-                      </div>
-                      <p
-                        className={`font-mono-num text-xs ${
-                          hasLoggedFood
-                            ? 'text-emerald-300 font-semibold'
-                            : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        {slotCals} kcal · {slotItems.length}{' '}
-                        {isHi ? 'आइटम' : slotItems.length === 1 ? 'item' : 'items'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => onOpenLogger(slot)}
-                        className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                          hasLoggedFood
-                            ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold'
-                            : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
-                        }`}
-                      >
-                        <Plus className="w-4 h-4" />
-                        {t(language, 'addFood')}
-                      </button>
-                    </div>
-                  </div>
-
-                  {hasLoggedFood && (
-                    <div className="divide-y divide-slate-800 dark:divide-emerald-900/70 pt-1">
-                      {slotItems.map((item) => (
-                        <div key={item.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-semibold text-white truncate">
-                              {item.foodName}
-                            </div>
-                            <div className="text-xs text-slate-300 dark:text-emerald-200/80 font-mono-num">
-                              {item.servingQty} {item.servingUnit} ({item.grams}g) · P {item.protein}g · C {item.carbs}g · F{' '}
-                              {item.fat}g
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-end gap-2 shrink-0">
-                            {onUpdateLogQty && (
-                              <div className="flex items-center rounded-lg bg-slate-800 dark:bg-emerald-900/80 border border-slate-700 dark:border-emerald-700/80 p-0.5">
-                                <button
-                                  type="button"
-                                  aria-label={isHi ? 'मात्रा घटाएं' : 'Decrease food quantity'}
-                                  onClick={() =>
-                                    onUpdateLogQty(
-                                      item.id,
-                                      Math.max(0.25, item.servingQty - (item.servingQty <= 0.5 ? 0.25 : 0.5))
-                                    )
-                                  }
-                                  className="min-h-[32px] min-w-[30px] rounded-md flex items-center justify-center text-slate-200 hover:bg-slate-700 dark:hover:bg-emerald-800 transition-colors"
-                                >
-                                  <Minus className="w-3.5 h-3.5" />
-                                </button>
-                                <select
-                                  aria-label={isHi ? 'मात्रा चुनें' : 'Select food quantity'}
-                                  value={
-                                    [0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].includes(item.servingQty)
-                                      ? item.servingQty
-                                      : 'custom'
-                                  }
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    if (!Number.isNaN(val)) onUpdateLogQty(item.id, val);
-                                  }}
-                                  className="min-h-[32px] px-1 bg-transparent font-mono-num text-xs font-bold text-white text-center focus:outline-none cursor-pointer"
-                                >
-                                  {[0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].map((q) => (
-                                    <option key={q} value={q} className="bg-slate-900 text-white">
-                                      {q}×
-                                    </option>
-                                  ))}
-                                  {![0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].includes(item.servingQty) && (
-                                    <option value="custom" className="bg-slate-900 text-white">
-                                      {item.servingQty}×
-                                    </option>
-                                  )}
-                                </select>
-                                <button
-                                  type="button"
-                                  aria-label={isHi ? 'मात्रा बढ़ाएं' : 'Increase food quantity'}
-                                  onClick={() => onUpdateLogQty(item.id, Math.min(50, item.servingQty + 0.5))}
-                                  className="min-h-[32px] min-w-[30px] rounded-md flex items-center justify-center text-slate-200 hover:bg-slate-700 dark:hover:bg-emerald-800 transition-colors"
-                                >
-                                  <Plus className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            )}
-                            <span className="font-mono-num text-sm font-bold text-emerald-300 whitespace-nowrap">
-                              {item.calories} kcal
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => onDeleteLog(item.id)}
-                              aria-label="Delete entry"
-                              className="min-h-[38px] min-w-[38px] rounded-lg text-slate-400 hover:text-rose-400 flex items-center justify-center transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </section>
         </div>
 
         {/* Right Column: Water Tracker + Steps & Exercise */}
@@ -1013,135 +646,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 +500 ml
               </button>
             </div>
-
-            {/* Water Drinking Alarm Schedule Anchored to Wake-Up Time */}
-            <div className="p-3.5 rounded-2xl bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/80 dark:border-sky-900/50 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  {waterAlarmsOn ? (
-                    <AlarmClock className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
-                  ) : (
-                    <BellOff className="w-4 h-4 text-slate-400 shrink-0" />
-                  )}
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                      {isHi ? 'पानी पीने का अलार्म शेड्यूल' : 'Water Drinking Alarm'}
-                    </div>
-                    <div className="text-[11px] font-mono-num text-slate-500 dark:text-slate-400 truncate">
-                      {waterAlarmsOn && nextWaterAlarm
-                        ? `${isHi ? 'अगला' : 'Next'} ${nextWaterAlarm.slot.time} (${
-                            Math.floor(nextWaterAlarm.minutesUntil / 60) > 0
-                              ? `${Math.floor(nextWaterAlarm.minutesUntil / 60)}h ${nextWaterAlarm.minutesUntil % 60}m`
-                              : `${nextWaterAlarm.minutesUntil}m`
-                          }) · +${nextWaterAlarm.slot.waterMl}ml`
-                        : isHi
-                        ? 'पानी अलार्म बंद हैं'
-                        : 'Water alarms paused'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => (onTestWaterAlarm ? onTestWaterAlarm() : onTestAlarm())}
-                    className="min-h-[36px] px-2.5 rounded-xl bg-white dark:bg-[#111a15] border border-sky-200 dark:border-sky-800 text-[11px] font-semibold text-sky-700 dark:text-sky-300 flex items-center gap-1 whitespace-nowrap"
-                  >
-                    <Volume2 className="w-3.5 h-3.5" />
-                    <span>{isHi ? 'टेस्ट' : 'Test'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!waterAlarmsOn) {
-                        onEnableAlarms();
-                      } else {
-                        onUpdateReminders({ ...reminders, waterAlarmsEnabled: false });
-                      }
-                    }}
-                    className={`min-h-[36px] px-3 rounded-xl text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                      waterAlarmsOn
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    {waterAlarmsOn
-                      ? isHi
-                        ? 'अलार्म चालू'
-                        : 'Alarm ON'
-                      : isHi
-                      ? 'अलार्म चालू करें'
-                      : 'Enable Alarm'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    {isHi ? 'उठने का समय' : 'Wake-Up Time'}
-                  </label>
-                  <input
-                    type="time"
-                    value={wakeTime}
-                    onChange={(e) => {
-                      if (!e.target.value) return;
-                      const derived = deriveMealTimesFromWakeUp(e.target.value);
-                      onUpdateReminders({
-                        ...reminders,
-                        wakeUpTime: derived.wakeUpTime,
-                        breakfast: derived.breakfast,
-                        lunch: derived.lunch,
-                        dinner: derived.dinner,
-                      });
-                    }}
-                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-sky-200/80 dark:border-sky-900/60 bg-white dark:bg-[#111a15] font-mono-num text-xs font-semibold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    {isHi ? 'हर कितने समय में' : 'Remind Every'}
-                  </label>
-                  <select
-                    value={reminders.waterIntervalMin}
-                    onChange={(e) => onUpdateReminders({ ...reminders, waterIntervalMin: Number(e.target.value) })}
-                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-sky-200/80 dark:border-sky-900/60 bg-white dark:bg-[#111a15] text-xs font-semibold"
-                  >
-                    <option value={30}>30 min</option>
-                    <option value={45}>45 min</option>
-                    <option value={60}>60 min</option>
-                    <option value={90}>90 min</option>
-                    <option value={120}>120 min</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Scrollable Wake-Up-Anchored Water Alarm Times */}
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-                {waterSlots.map((slot) => {
-                  const done = completedSlotIds.includes(slot.id);
-                  const isNext = nextWaterAlarm?.slot.id === slot.id && !done;
-                  return (
-                    <button
-                      key={slot.id}
-                      type="button"
-                      onClick={() => onToggleScheduleSlot(slot)}
-                      title={`${slot.time} · ${isHi ? slot.titleHi : slot.titleEn} (+${slot.waterMl}ml)`}
-                      className={`min-h-[36px] px-2.5 rounded-xl border text-[11px] font-mono-num font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors ${
-                        done
-                          ? 'bg-emerald-600 border-emerald-600 text-white'
-                          : isNext
-                          ? 'bg-sky-600 border-sky-600 text-white shadow-2xs'
-                          : 'bg-white dark:bg-[#111a15] border-sky-200/80 dark:border-sky-900/50 text-slate-700 dark:text-slate-300 hover:border-sky-400'
-                      }`}
-                    >
-                      {done && <Check className="w-3 h-3 shrink-0" />}
-                      <span>{slot.time}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </section>
 
           {/* Steps & Exercise Card */}
@@ -1230,19 +734,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             activities={activities}
             onAddActivity={onAddActivity}
             onDeleteActivity={onDeleteActivity}
-          />
-
-          {/* Daily Eating & Hydration Schedule */}
-          <DailyScheduleCard
-            language={language}
-            reminders={reminders}
-            waterGoalMl={metrics.waterGoalMl}
-            completedSlotIds={completedSlotIds}
-            onToggleSlot={onToggleScheduleSlot}
-            onOpenMealLogger={onOpenLogger}
-            onUpdateReminders={onUpdateReminders}
-            onTestAlarm={onTestAlarm}
-            onEnableAlarms={onEnableAlarms}
           />
         </div>
       </div>

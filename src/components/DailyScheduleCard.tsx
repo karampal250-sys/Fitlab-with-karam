@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, BellOff, Check, Clock, Droplets, Dumbbell, Moon, Sunrise, Utensils, Volume2 } from 'lucide-react';
-import type { Language, MealType, RemindersConfig, ScheduleSlot } from '../types/fitplate';
+import { Bell, BellOff, Check, Clock, Droplets, Dumbbell, Utensils, Volume2 } from 'lucide-react';
+import type { FoodLogEntry, Language, MealType, RemindersConfig, ScheduleSlot } from '../types/fitplate';
 import { buildDailySchedule, deriveMealTimesFromWakeUp, isNightShiftWakeTime } from '../data/activitiesCatalog';
 import { getNextUpcomingSlot } from '../utils/alarmEngine';
 
@@ -9,6 +9,8 @@ interface DailyScheduleCardProps {
   reminders: RemindersConfig;
   waterGoalMl: number;
   completedSlotIds: string[];
+  activeMealType?: MealType;
+  dayLogs?: FoodLogEntry[];
   onToggleSlot: (slot: ScheduleSlot) => void;
   onOpenMealLogger: (mealType: MealType) => void;
   onUpdateReminders: (next: RemindersConfig) => void;
@@ -21,6 +23,8 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
   reminders,
   waterGoalMl,
   completedSlotIds,
+  activeMealType,
+  dayLogs = [],
   onToggleSlot,
   onOpenMealLogger,
   onUpdateReminders,
@@ -38,6 +42,7 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
   }, []);
 
   const wakeUpTime = reminders.wakeUpTime || '07:00';
+  const sleepTime = reminders.sleepTime || deriveMealTimesFromWakeUp(wakeUpTime).sleepTime;
   const nightShift = isNightShiftWakeTime(wakeUpTime);
   const alarmsOn = reminders.alarmsEnabled !== false && reminders.enabled !== false;
 
@@ -53,18 +58,6 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
   );
 
   const completedCount = slots.filter((s) => completedSlotIds.includes(s.id)).length;
-
-  const handleWakeUpChange = (nextWakeTime: string) => {
-    if (!nextWakeTime) return;
-    const derived = deriveMealTimesFromWakeUp(nextWakeTime);
-    onUpdateReminders({
-      ...reminders,
-      wakeUpTime: derived.wakeUpTime,
-      breakfast: derived.breakfast,
-      lunch: derived.lunch,
-      dinner: derived.dinner,
-    });
-  };
 
   const formatCountdown = (mins: number) => {
     const h = Math.floor(mins / 60);
@@ -82,7 +75,8 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 font-mono-num">
             {completedCount}/{slots.length} {isHi ? 'पूर्ण' : 'completed'} ·{' '}
-            {nightShift ? (isHi ? 'नाइट शिफ्ट रूटीन' : 'Night Shift Routine') : isHi ? 'डे शिफ्ट रूटीन' : 'Day Shift Routine'}
+            {nightShift ? (isHi ? 'नाइट शिफ्ट' : 'Night Shift') : isHi ? 'डे शिफ्ट' : 'Day Shift'} ·{' '}
+            Wake {wakeUpTime} · Sleep {sleepTime}
           </p>
         </div>
 
@@ -117,63 +111,6 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
           >
             <Clock className="w-4 h-4" />
           </button>
-        </div>
-      </div>
-
-      {/* Wake-Up Time Selector (First step for Day / Night shift users) */}
-      <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-[#090e0b] border border-slate-200/80 dark:border-emerald-900/50 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              {nightShift ? <Moon className="w-4 h-4" /> : <Sunrise className="w-4 h-4" />}
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                {isHi ? 'उठने का समय (Wake-Up Time)' : 'Wake-Up Time (Auto-Builds Schedule)'}
-              </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                {nightShift
-                  ? isHi
-                    ? 'नाइट शिफ्ट के अनुसार सभी समय सेट हैं'
-                    : 'Adjusted for Night Shift across midnight'
-                  : isHi
-                  ? 'उठने के समय से भोजन और पानी का समय तय होता है'
-                  : 'All meals, water & workout alarms anchor to this'}
-              </div>
-            </div>
-          </div>
-
-          <input
-            type="time"
-            aria-label="Wake-up time"
-            value={wakeUpTime}
-            onChange={(e) => handleWakeUpChange(e.target.value)}
-            className="min-h-[40px] px-3 rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-white dark:bg-[#111a15] font-mono-num text-sm font-bold text-emerald-700 dark:text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(
-            [
-              ['06:00', isHi ? '06:00 सुबह' : '06:00 Early'],
-              ['07:00', isHi ? '07:00 दिन' : '07:00 Day'],
-              ['14:00', isHi ? '14:00 दोपहर' : '14:00 Afternoon'],
-              ['20:00', isHi ? '20:00 नाइट शिफ्ट' : '20:00 Night Shift'],
-            ] as [string, string][]
-          ).map(([preset, lbl]) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => handleWakeUpChange(preset)}
-              className={`min-h-[34px] px-2.5 rounded-lg text-[11px] font-semibold transition-colors ${
-                wakeUpTime === preset
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-white dark:bg-[#111a15] border border-slate-200 dark:border-emerald-900/50 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              {lbl}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -281,11 +218,24 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
         {visibleSlots.map((slot) => {
           const done = completedSlotIds.includes(slot.id);
           const isNext = nextAlarm?.slot.id === slot.id && !done;
+          const isSelectedMeal = Boolean(
+            activeMealType && slot.kind === 'meal' && slot.mealType === activeMealType
+          );
+          const mealCalories =
+            slot.kind === 'meal' && slot.mealType
+              ? dayLogs
+                  .filter((l) => l.mealType === slot.mealType)
+                  .reduce((sum, entry) => sum + entry.calories, 0)
+              : 0;
           return (
             <div
               key={slot.id}
               className={`py-2.5 flex items-center justify-between gap-3 ${
-                isNext ? 'bg-emerald-50/40 dark:bg-emerald-950/20 -mx-2 px-2 rounded-xl' : ''
+                isSelectedMeal
+                  ? 'bg-emerald-50/70 dark:bg-emerald-950/45 -mx-2 px-2 rounded-xl ring-1 ring-emerald-500/40'
+                  : isNext
+                  ? 'bg-emerald-50/40 dark:bg-emerald-950/20 -mx-2 px-2 rounded-xl'
+                  : ''
               }`}
             >
               <div className="flex items-center gap-3 min-w-0">
@@ -333,18 +283,26 @@ export const DailyScheduleCard: React.FC<DailyScheduleCardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                    {isHi ? slot.detailHi : slot.detailEn}
+                    {mealCalories > 0
+                      ? `${mealCalories} kcal ${isHi ? 'लॉग' : 'logged'} · ${isHi ? slot.detailHi : slot.detailEn}`
+                      : isHi
+                      ? slot.detailHi
+                      : slot.detailEn}
                   </p>
                 </div>
               </div>
 
-              {slot.kind === 'meal' && slot.mealType && !done && (
+              {slot.kind === 'meal' && slot.mealType && (
                 <button
                   type="button"
                   onClick={() => onOpenMealLogger(slot.mealType!)}
-                  className="min-h-[36px] px-3 rounded-xl bg-stone-100 dark:bg-[#090e0b] hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-xs font-semibold text-slate-700 dark:text-slate-300 shrink-0"
+                  className={`min-h-[36px] px-3 rounded-xl text-xs font-semibold shrink-0 transition-colors ${
+                    isSelectedMeal
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-stone-100 dark:bg-[#090e0b] hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-700 dark:text-slate-300'
+                  }`}
                 >
-                  {isHi ? 'लॉग करें' : 'Log'}
+                  {isHi ? 'लॉग' : 'Log'}
                 </button>
               )}
 

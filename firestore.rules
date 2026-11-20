@@ -59,7 +59,7 @@ service cloud.firestore {
         'activityLevel', 'dietType', 'allergies', 'timelineWeeks', 'goalType',
         'bmi', 'bmr', 'tdee', 'dailyCalorieTarget',
         'proteinTargetG', 'carbsTargetG', 'fatTargetG', 'fiberTargetG',
-        'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'authProvider', 'createdAt', 'updatedAt'
+        'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'sleepTime', 'authProvider', 'createdAt', 'updatedAt'
       ])
       && data.uid == userId
       && isValidId(data.uid)
@@ -88,6 +88,7 @@ service cloud.firestore {
       && data.darkMode is bool
       && data.healthSyncEnabled is bool
       && (!('wakeUpTime' in data) || isValidTimeStr(data.wakeUpTime))
+      && (!('sleepTime' in data) || isValidTimeStr(data.sleepTime))
       && (!('authProvider' in data) || data.authProvider in ['google', 'facebook', 'local'])
       && data.createdAt is timestamp
       && data.updatedAt is timestamp;
@@ -241,7 +242,7 @@ service cloud.firestore {
             'activityLevel', 'dietType', 'allergies', 'timelineWeeks', 'goalType',
             'bmi', 'bmr', 'tdee', 'dailyCalorieTarget',
             'proteinTargetG', 'carbsTargetG', 'fatTargetG', 'fiberTargetG',
-            'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'authProvider', 'updatedAt'
+            'language', 'darkMode', 'healthSyncEnabled', 'wakeUpTime', 'sleepTime', 'authProvider', 'updatedAt'
           ])
         );
       allow delete: if isValidId(userId) && isOwner(userId);
