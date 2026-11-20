@@ -48,7 +48,7 @@ jobs:
           fi
           npx cap sync android
 
-      - name: Configure Android safe system bars (prevent Back/Home overlap)
+      - name: Configure Android safe system bars & permissions
         run: |
           python3 - <<'EOF'
           import pathlib
@@ -63,6 +63,23 @@ jobs:
               if 'fitsSystemWindows' not in txt:
                   txt = txt.replace('</style>', extra + '    </style>', 1)
                   styles_path.write_text(txt)
+
+          manifest_path = pathlib.Path('android/app/src/main/AndroidManifest.xml')
+          if manifest_path.exists():
+              mtxt = manifest_path.read_text()
+              perms = [
+                  'android.permission.RECORD_AUDIO',
+                  'android.permission.MODIFY_AUDIO_SETTINGS',
+                  'android.permission.POST_NOTIFICATIONS',
+              ]
+              additions = ''.join(
+                  f'    <uses-permission android:name="{p}" />\n'
+                  for p in perms
+                  if p not in mtxt
+              )
+              if additions and '<application' in mtxt:
+                  mtxt = mtxt.replace('<application', additions + '    <application', 1)
+                  manifest_path.write_text(mtxt)
           EOF
 
       - name: Apply app launcher icons
