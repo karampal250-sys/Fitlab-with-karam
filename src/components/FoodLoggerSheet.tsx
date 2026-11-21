@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Mic, MicOff, Minus, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, Minus, Plus, Search, Trash2, X } from 'lucide-react';
 import type {
   DietType,
   FoodItem,
@@ -63,44 +63,6 @@ const DEFAULT_SCHEDULE_REMINDERS: RemindersConfig = {
   enabled: true,
 };
 
-interface BrowserSpeechRecognitionAlternative {
-  transcript: string;
-}
-
-interface BrowserSpeechRecognitionResult {
-  readonly length: number;
-  readonly isFinal: boolean;
-  [index: number]: BrowserSpeechRecognitionAlternative;
-}
-
-interface BrowserSpeechRecognitionEvent {
-  readonly results: {
-    readonly length: number;
-    [index: number]: BrowserSpeechRecognitionResult;
-  };
-}
-
-interface BrowserSpeechRecognition {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  maxAlternatives: number;
-  onstart: (() => void) | null;
-  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
-  onerror: ((event: { error?: string }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-}
-
-type SpeechRecognitionCtor = new () => BrowserSpeechRecognition;
-
-type SpeechRecognitionWindow = Window & {
-  SpeechRecognition?: SpeechRecognitionCtor;
-  webkitSpeechRecognition?: SpeechRecognitionCtor;
-};
-
 export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   language,
   activeDate,
@@ -126,7 +88,6 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const effectiveReminders = reminders || DEFAULT_SCHEDULE_REMINDERS;
   const searchBoxRef = useRef<HTMLInputElement | null>(null);
   const topPanelRef = useRef<HTMLDivElement | null>(null);
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   const [mealType, setMealType] = useState<MealType>(initialMealType);
   const [showCustomForm, setShowCustomForm] = useState(false);
@@ -134,8 +95,6 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   const [query, setQuery] = useState('');
   const [remoteSearchResults, setRemoteSearchResults] = useState<FoodItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
 
   // Selected food portion & quantity adjuster
   const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
@@ -162,126 +121,6 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
   useEffect(() => {
     setMealType(initialMealType);
   }, [initialMealType]);
-
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {
-          // Ignore cleanup abort errors
-        }
-        recognitionRef.current = null;
-      }
-    };
-  }, []);
-
-  const stopVoiceSearch = () => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {
-        // Ignore stop errors
-      }
-    }
-    setIsListening(false);
-  };
-
-  const toggleVoiceSearch = () => {
-    if (isListening) {
-      stopVoiceSearch();
-      return;
-    }
-
-    setVoiceNotice(null);
-    const w = typeof window !== 'undefined' ? (window as SpeechRecognitionWindow) : null;
-    const SpeechRec = w?.SpeechRecognition || w?.webkitSpeechRecognition;
-
-    if (!SpeechRec) {
-      setVoiceNotice(
-        isHi
-          ? 'इस ब्राउज़र में वॉयस सर्च उपलब्ध नहीं है। कृपया टाइप करके खोजें।'
-          : 'Voice search is not supported in this browser. Please type to search.'
-      );
-      return;
-    }
-
-    try {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {
-          // Ignore prior abort
-        }
-      }
-
-      const recognition = new SpeechRec();
-      recognition.lang = isHi ? 'hi-IN' : 'en-IN';
-      recognition.interimResults = true;
-      recognition.continuous = false;
-      recognition.maxAlternatives = 1;
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        setVoiceNotice(null);
-      };
-
-      recognition.onresult = (event) => {
-        let spoken = '';
-        for (let i = 0; i < event.results.length; i++) {
-          const piece = event.results[i]?.[0]?.transcript;
-          if (piece) spoken += `${piece} `;
-        }
-        const cleaned = spoken.replace(/[.?!।,]+$/g, '').trim();
-        if (cleaned) {
-          setQuery(cleaned);
-        }
-      };
-
-      recognition.onerror = (event) => {
-        const err = event?.error || '';
-        if (err === 'aborted') {
-          setIsListening(false);
-          return;
-        }
-        if (err === 'not-allowed' || err === 'service-not-allowed') {
-          setVoiceNotice(
-            isHi
-              ? 'माइक्रोफ़ोन की अनुमति नहीं मिली। कृपया ब्राउज़र में माइक अनुमति दें।'
-              : 'Microphone permission denied. Please allow mic access in your browser.'
-          );
-        } else if (err === 'no-speech') {
-          setVoiceNotice(
-            isHi
-              ? 'कोई आवाज़ नहीं सुनाई दी। माइक पर टैप करके फिर बोलें।'
-              : 'No speech detected. Tap the mic and try again.'
-          );
-        } else {
-          setVoiceNotice(
-            isHi
-              ? 'वॉयस सर्च शुरू नहीं हो सकी। कृपया टाइप करके खोजें।'
-              : 'Could not capture voice search. Please try typing.'
-          );
-        }
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-        recognitionRef.current = null;
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch {
-      setIsListening(false);
-      setVoiceNotice(
-        isHi
-          ? 'वॉयस सर्च शुरू नहीं हो सकी। कृपया टाइप करके खोजें।'
-          : 'Could not start voice search. Please try typing.'
-      );
-    }
-  };
 
   const activeMealTime = useMemo(() => {
     const slots = buildDailySchedule(effectiveReminders, waterGoalMl);
@@ -711,7 +550,7 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
           </div>
         )}
 
-        {/* Simple Search Input with Voice Search */}
+        {/* Simple Search Input */}
         <div className="space-y-3">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -722,89 +561,24 @@ export const FoodLoggerSheet: React.FC<FoodLoggerSheetProps> = ({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={
                 isHi
-                  ? `${t(language, mealType)} (${activeMealTime}) के लिए भोजन खोजें या बोलें...`
-                  : `Search or speak food for ${t(language, mealType)} (${activeMealTime})...`
+                  ? `${t(language, mealType)} (${activeMealTime}) के लिए भोजन खोजें...`
+                  : `Search food for ${t(language, mealType)} (${activeMealTime})...`
               }
               className={`w-full min-h-[48px] pl-10 ${
-                query ? 'pr-24' : 'pr-12'
+                query ? 'pr-12' : 'pr-4'
               } rounded-xl border border-slate-200 dark:border-emerald-900/60 bg-stone-50 dark:bg-[#090e0b] text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500`}
             />
-            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              {query && (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => setQuery('')}
-                  className="min-h-[38px] min-w-[38px] rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+            {query && (
               <button
                 type="button"
-                onClick={toggleVoiceSearch}
-                aria-label={
-                  isListening
-                    ? isHi
-                      ? 'वॉयस सर्च बंद करें'
-                      : 'Stop voice search'
-                    : isHi
-                    ? 'वॉयस से भोजन खोजें'
-                    : 'Search food by voice'
-                }
-                title={
-                  isListening
-                    ? isHi
-                      ? 'सुन रहा है — रोकने के लिए टैप करें'
-                      : 'Listening — tap to stop'
-                    : isHi
-                    ? 'बोलकर भोजन खोजें'
-                    : 'Voice search food'
-                }
-                className={`min-h-[38px] min-w-[38px] rounded-lg flex items-center justify-center transition-colors ${
-                  isListening
-                    ? 'bg-rose-500 text-white animate-pulse'
-                    : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60'
-                }`}
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 min-h-[38px] min-w-[38px] rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white"
               >
-                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                <X className="w-4 h-4" />
               </button>
-            </div>
+            )}
           </div>
-
-          {isListening && (
-            <div className="px-3.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs text-emerald-800 dark:text-emerald-200 font-medium">
-              <span className="flex items-center gap-2 min-w-0">
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" />
-                <span className="truncate">
-                  {isHi
-                    ? 'सुन रहा हूँ… भोजन का नाम बोलें (जैसे: रोटी, दाल, पोहा)'
-                    : 'Listening… speak a food name (e.g., Roti, Dal, Poha)'}
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={stopVoiceSearch}
-                className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#111a15] border border-emerald-200 dark:border-emerald-800 text-[11px] font-semibold shrink-0"
-              >
-                {isHi ? 'रोकें' : 'Stop'}
-              </button>
-            </div>
-          )}
-
-          {voiceNotice && !isListening && (
-            <div className="px-3.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 flex items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-200">
-              <span>{voiceNotice}</span>
-              <button
-                type="button"
-                onClick={() => setVoiceNotice(null)}
-                aria-label="Dismiss voice notice"
-                className="min-h-[28px] min-w-[28px] flex items-center justify-center shrink-0"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
 
           {hasTypedQuery && (
             <div className="space-y-2">
